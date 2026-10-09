@@ -86,6 +86,7 @@ export default {
         name: 'ROG Zephyrus G14（386H / 5070 Ti / 32GB）open-box 或整新低於 $2200',
         cat: 'laptop', match: /zephyrus\s*g14/i, cpu: /386H/, gpu: /^5070 Ti/, minRamGB: 32, kind: ['ob', 'refurb'], maxPrice: 2200,
       },
+      { name: 'RTX 5070 Ti 筆電低於 $1450', cat: 'laptop', gpu: /^5070 Ti/, maxPrice: 1450 },
       { name: 'Best Buy 5080 以上筆電低於 $2000', store: 'bb', cat: 'laptop', gpu: /^50(80|90)/, maxPrice: 2000 },
       { name: 'ROG Zephyrus 5070 Ti 以上低於 $2000', cat: 'laptop', match: /zephyrus/i, gpu: /^50(70 Ti|80|90)/, maxPrice: 2000 },
     ],

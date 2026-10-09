@@ -224,7 +224,7 @@ function render() {
       <td class="num">${i.ref ? money(i.ref) : ''}</td>
       <td class="num off">${i.off ? `-${i.off}%` : ''}</td>
       <td class="num">${priceCell(i)}</td>
-      <td><button data-cart="${esc(i.cartUrl)}" data-store="${i.store}">加入購物車</button></td>
+      <td>${buyButton(i)}</td>
     </tr>`).join('') : `<tr><td colspan="${COLS.length}" class="empty">${data.items.length ? '沒有符合篩選條件的商品' : '還在等第一次掃描完成…'}</td></tr>`;
 
   $('watchBox').hidden = !data.watchlist.length;
@@ -242,7 +242,15 @@ function render() {
     <div class="alert"><time>${new Date(a.t).toLocaleTimeString()}</time>
       <span class="tag ${a.why}">${WHY[a.why]}${a.why === 'DROP' ? ` ${money(a.prev)}→${money(a.price)}` : ''}</span>
       <span>${a.store === 'bb' ? 'Best Buy' : 'Walmart'} ${esc(a.cond)} <b>${money(a.price)}</b> ${esc(a.name)}${a.reason ? `<div class="sub">${esc(a.reason)}</div>` : ''}</span>
-      <span class="spacer"></span><button data-cart="${esc(a.cartUrl)}" data-store="${a.store}">加入購物車</button></div>`).join('');
+      <span class="spacer"></span>${buyButton(a)}</div>`).join('');
+}
+
+// Best Buy 第三方賣家的商品沒有加入購物車連結，只能開商品頁自己按
+function buyButton(i) {
+  if (i.soldOut) return '<span class="sub">已售完</span>';
+  return i.cartUrl
+    ? `<button data-cart="${esc(i.cartUrl)}" data-store="${i.store}">加入購物車</button>`
+    : `<a class="linkbtn" href="${esc(i.url)}" target="_blank" rel="noopener" title="第三方賣家的商品要到商品頁加入購物車">開商品頁</a>`;
 }
 
 // 在「你現在看這個頁面的瀏覽器」開分頁，所以用的是這台電腦上已登入的帳號，跟 dealwatch 跑在哪台機器無關

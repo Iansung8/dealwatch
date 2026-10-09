@@ -102,8 +102,9 @@ node dealwatch.mjs notify-test
 - **整機**：售價 ≤ CPU + 顯卡 + 記憶體 + SSD 各自的撿漏價，再加 `buildAllowance`（主機板、電源、機殼、散熱、
   Windows，預設 $600）。只看顯卡在 `desktopMinGpu`（預設 RTX 5070 Ti）以上的機器，
   低階主機的其餘零件沒那麼值錢，用同一個加總會太寬鬆。
-- **筆電**：估不出零件價，用 `config.mjs` 裡的 `steals.rules`，命中任一條就算。目前三條：
+- **筆電**：估不出零件價，用 `config.mjs` 裡的 `steals.rules`，命中任一條就算。目前四條：
   ROG Zephyrus G14（Core Ultra 9 386H / 5070 Ti / 32GB）的 open-box 或整新品低於 $2200、
+  任何 RTX 5070 Ti 筆電低於 $1450、
   Best Buy 的 5080 / 5090 筆電低於 $2000、ROG Zephyrus 5070 Ti 以上低於 $2000。
   規則可以用標題、cpu、gpu、記憶體、成色（open-box / 整新 / 全新）、店家、價格上限來組合。
 - 售價低於估值一半（`tooGood`）視為假貨或標題解析錯誤，不算撿漏。
@@ -138,7 +139,12 @@ MSRP 表裡沒有的型號會退回用市價：Best Buy 全新品目錄的最低
   它會把那個視窗帶到最前面，等你親手按完（按住按鈕那種），下一輪就恢復；網頁介面上可以按「立刻重掃」。
   也可以先跑 `node dealwatch.mjs browser` 把視窗開好、順便登入帳號。
   最後的備案是 `node dealwatch.mjs urls` 列出網址 → 自己在瀏覽器另存成 HTML → `node dealwatch.mjs ingest 檔案.html`。
-- Best Buy 的 open-box 無法在加入購物車前確認是否可宅配，要到購物車頁才看得到取貨門市。
+- Best Buy 的庫存狀態分三種情況：
+  - 自營的全新 / 整新品：腳本會查庫存，售完的不列出。
+  - 第三方賣家（Marketplace）的商品：搜尋資料不帶庫存，所以清單裡可能有已售完的。
+    只有在它被判成撿漏、要通知之前，腳本才會開商品頁確認，售完的不通知並標「已售完」。
+    另外這類商品沒有加入購物車連結，按鈕是「開商品頁」，要自己到頁面上按。
+  - open-box：多半限門市取貨，無法事先確認，要到購物車頁才看得到取貨門市。
 - Walmart 有大量第三方賣家，表格的 `賣家` 欄請自己把關；可用 `config.walmart.sellers` 只看信任的賣家。
 - 規格欄是從標題解析的，標題沒寫的欄位會留空。
 

@@ -89,15 +89,43 @@ export class Browser {
     });
   }
 
-  // 在同一個分頁依序載入，回傳整頁 HTML
-  async html(url, timeout = 30000) {
+  // 只有一個分頁，所有載入都排隊依序做
+  serial(fn) {
+    const job = (this.chain ?? Promise.resolve()).then(fn);
+    this.chain = job.catch(() => {});
+    return job;
+  }
+
+  async navigate(url, timeout) {
     await this.ready();
     const loaded = this.waitEvent('Page.domContentEventFired', timeout);
     const nav = await this.send('Page.navigate', { url }, this.session);
     if (nav.errorText) { loaded.catch(() => {}); throw new Error(`瀏覽器載入失敗: ${nav.errorText}`); }
     await loaded;
-    const { result } = await this.send('Runtime.evaluate', { expression: 'document.documentElement.outerHTML', returnByValue: true }, this.session);
+  }
+
+  async run(expression) {
+    const { result } = await this.send('Runtime.evaluate', { expression, returnByValue: true }, this.session);
     return result.value;
+  }
+
+  // 載入一頁，回傳整頁 HTML
+  html(url, timeout = 30000) {
+    return this.serial(async () => { await this.navigate(url, timeout); return this.run('document.documentElement.outerHTML'); });
+  }
+
+  // 載入一頁後反覆執行一段運算式，直到 until(結果) 成立或逾時，回傳最後一次的結果。
+  // 給內容是載入後才由腳本畫出來的頁面用。
+  evaluate(url, expression, { until = v => !!v, timeout = 10000 } = {}) {
+    return this.serial(async () => {
+      await this.navigate(url, 30000);
+      const deadline = Date.now() + timeout;
+      for (;;) {
+        const value = await this.run(expression);
+        if (until(value) || Date.now() > deadline) return value;
+        await sleep(500);
+      }
+    });
   }
 
   // 把分頁帶到最前面（需要你手動處理人機驗證或登入時用）

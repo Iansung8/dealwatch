@@ -65,7 +65,8 @@ function alertText({ why, item, prev }) {
     shortName(item.name).slice(0, 140),
     `$${fmt(item.price)}${off}｜${item.seller}`,
     ...(why === 'STEAL' ? [item.deal.reason] : []),
-    `加入購物車: ${item.cartUrl}`,
+    // 第三方賣家的商品沒有加入購物車連結，只能到商品頁按
+    ...(item.cartUrl ? [`加入購物車: ${item.cartUrl}`] : []),
     `商品頁: ${item.url}`,
   ].join('\n');
 }

@@ -165,6 +165,7 @@ async function scanStore(store) {
   const watch = await Promise.all(mine.map(async w => {
     try {
       const forms = await (store === 'bb' ? bestbuy.product(w.id) : walmart.product(w.id));
+      await markStock(forms);
       for (const item of forms.filter(keep)) {
         const hit = found.get(item.key) ?? classify(item) ?? forceClassify(item);
         if (hit) found.set(item.key, { ...hit, watch: w });
@@ -177,7 +178,8 @@ async function scanStore(store) {
       return { ...w, error: err.message };
     }
   }));
-  const items = [...found.values()];
+  await markStock([...found.values()]);
+  const items = [...found.values()].filter(i => i.inStock);
   // 整輪失敗時不要用空結果蓋掉上一輪的行情
   if (items.length || !errors.length) await judgeItems(store, items);
   return { store, items, watch, errors: [...new Set(errors)], blocked, requests: jobs.length + mine.length, raw, ms: Date.now() - t0 };
@@ -250,7 +252,8 @@ async function judgeItems(store, items) {
     item.deal = judge(item, priceOf, config.steals, ownMarketPrice(store, item));
     // 指定商品有設到價通知的話，到價就算撿漏
     const target = item.watch?.maxPrice;
-    if (target && item.price <= target) item.deal = { ...item.deal, steal: true, reason: `指定商品到價：售價 $${item.price}，你設定 $${target} 以下通知` };
+    if (target && item.price <= target) item.deal = { ...item.deal, steal: true, reason: `指定商品到價：售價 ${item.price}，你設定 ${target} 以下通知` };
+    if (knownSoldOut(item)) markSoldOut(item);
   }
   // 判斷完才把這一輪的行情併進市價表。撿漏本身不併，它還在的期間才會一直維持 ★
   if (market && foldMarket(market, items.filter(i => !i.deal?.steal))) state.writeJson('market.json', market);
@@ -258,6 +261,42 @@ async function judgeItems(store, items) {
 
 // 還沒通知過的撿漏
 const pendingSteals = items => items.filter(i => i.deal?.steal && state.needsNotify(i, config.alert.dropPct));
+
+// 庫存查詢結果記 30 分鐘。key -> { t, ok }，ok 為 false 表示確定售完
+const stockCache = new Map();
+const STOCK_TTL = 30 * 60e3;
+const knownSoldOut = item => { const hit = stockCache.get(item.key); return !!hit && hit.ok === false && Date.now() - hit.t < STOCK_TTL; };
+
+// Best Buy 自營的全新 / 整新品直接查庫存，售完的標成沒貨。
+// open-box（多半限門市取貨）和第三方賣家的商品這個方法查不到，維持原樣。
+async function markStock(items) {
+  await Promise.all(items.filter(i => i.store === 'bb' && i.seller === 'BestBuy' && i.kind !== 'ob').map(async item => {
+    let hit = stockCache.get(item.key);
+    if (!hit || Date.now() - hit.t > STOCK_TTL) stockCache.set(item.key, hit = { t: Date.now(), ok: await bestbuy.available(item.id, config.zip) });
+    if (hit.ok === false) item.inStock = false;
+  }));
+}
+
+// 推播前的最後一關：Best Buy 第三方賣家的商品庫存只能開商品頁看，所以只對即將通知的撿漏做。
+// 確定售完的不通知；沒有瀏覽器可用、判斷不出來的照樣通知，但註明庫存未驗證。
+async function confirmSteals(items, candidates = pendingSteals(items)) {
+  const confirmed = [];
+  for (const item of candidates) {
+    if (item.store === 'bb' && item.seller !== 'BestBuy') {
+      const ok = await bestbuy.pageStock(wmBrowser, item.url);
+      stockCache.set(item.key, { t: Date.now(), ok });
+      if (ok === false) { markSoldOut(item); continue; }
+      if (ok === null) item.deal = { ...item.deal, reason: `${item.deal.reason}（第三方賣家，庫存未驗證）` };
+    }
+    confirmed.push(item);
+  }
+  return confirmed;
+}
+
+function markSoldOut(item) {
+  item.soldOut = true;
+  if (item.deal?.steal) item.deal = { ...item.deal, steal: false, reason: `已售完｜${item.deal.reason}` };
+}
 
 const catOrder = Object.keys(config.categories);
 const sortItems = items => items.sort((a, b) => catOrder.indexOf(a.cat) - catOrder.indexOf(b.cat) || b.off - a.off || a.price - b.price);
@@ -280,7 +319,10 @@ async function cmdScan() {
   // 被擋或整輪失敗的店不更新狀態，避免把半套結果當基準
   const alerts = results.filter(r => !failed(r)).flatMap(r => state.update(r.store, r.items, catNames, config.alert));
   state.save();
-  const items = applyView(sortItems(results.flatMap(r => r.items)));
+  const all = results.flatMap(r => r.items);
+  // 單次掃描不推播，但撿漏一樣先確認第三方賣家的庫存，免得列出已售完的
+  await confirmSteals(all, all.filter(i => i.deal?.steal));
+  const items = applyView(sortItems(all));
   state.writeJson('last.json', items);
   if (flags.json) { console.log(JSON.stringify({ items, alerts: alerts.map(a => ({ why: a.why, prev: a.prev, key: a.item.key })) }, null, 1)); return; }
   printTable(items);
@@ -351,7 +393,7 @@ async function cmdIngest(files) {
   const items = sortItems([...found.values()]);
   await judgeItems('wm', items);
   const alerts = state.update('wm', items, catNames, config.alert);
-  const steals = pendingSteals(items).map(item => ({ why: 'STEAL', item }));
+  const steals = (await confirmSteals(items)).map(item => ({ why: 'STEAL', item }));
   for (const s of steals) state.markNotified(s.item);
   state.save();
   state.writeJson('last.json', items);
@@ -396,6 +438,11 @@ async function cmdCart(args) {
     item = state.readJson('last.json')?.[+args[0] - 1];
     if (!item) { console.error('找不到這個編號。先跑 scan 或 q，再用表格最左邊的 # 編號。'); process.exit(1); }
   }
+  if (!item.cartUrl) {
+    console.log(`這件是第三方賣家的商品，沒有加入購物車連結，改開商品頁: ${item.name}\n${item.url}`);
+    if (!flags.dry) openUrl(item.url, config.cart.browser);
+    return;
+  }
   console.log(`加入購物車: ${item.name}\n${item.cartUrl}`);
   if (flags.dry) { console.log(c.dim('（--dry：只顯示連結，不開瀏覽器）')); return; }
   await addToCart(item, config.cart);
@@ -413,13 +460,13 @@ async function cmdWatch({ ui = false } = {}) {
 
   const handle = async (r, alerts) => {
     current[r.store] = r.items;
-    const steals = pendingSteals(r.items).map(item => ({ why: 'STEAL', item }));
+    const steals = (await confirmSteals(r.items)).map(item => ({ why: 'STEAL', item }));
     const stealKeys = new Set(steals.map(s => s.item.key));
     // 撿漏用自己的格式印（含估值說明），同一件就不再重複印上新 / 降價
     const plain = alerts.filter(a => !stealKeys.has(a.item.key));
     for (const a of [...steals, ...plain]) {
       recent.push({ t: Date.now(), ...a });
-      console.log(`${c.dim(time())} ${c.bold('#' + recent.length)} ${alertLine(a)}\n   ${c.dim(a.item.cartUrl)}`);
+      console.log(`${c.dim(time())} ${c.bold('#' + recent.length)} ${alertLine(a)}\n   ${c.dim(a.item.cartUrl ?? a.item.url)}`);
       state.appendLine('alerts.jsonl', { t: new Date().toISOString(), why: a.why, prev: a.prev, ...a.item });
     }
     if (!steals.length && !plain.length) return;
@@ -429,7 +476,7 @@ async function cmdWatch({ ui = false } = {}) {
     if (flags['auto-cart'] && !flags.headless) {
       for (const s of steals.filter(s => config.cart.auto?.(s.item)).slice(0, 2)) {
         console.log(c.yellow(`自動加入購物車: ${s.item.name.slice(0, 70)}`));
-        await addToCart(s.item, config.cart);
+        if (s.item.cartUrl) await addToCart(s.item, config.cart); else openUrl(s.item.url, config.cart.browser);
       }
     }
     await push(config.notify, config.notify.onlySteals ? steals : [...steals, ...plain]);
@@ -477,7 +524,7 @@ async function cmdWatch({ ui = false } = {}) {
         now: Date.now(),
         stores: Object.fromEntries(stores.map(s => [s, { name: STORES[s], intervalSec: config.intervalSec[s], ...status[s] }])),
         items: sortItems(Object.values(current).flat()),
-        alerts: recent.slice(-60).reverse().map(a => ({ t: a.t, why: a.why, prev: a.prev, key: a.item.key, name: a.item.name, price: a.item.price, store: a.item.store, cond: a.item.cond, cartUrl: a.item.cartUrl, reason: a.item.deal?.reason })),
+        alerts: recent.slice(-60).reverse().map(a => ({ t: a.t, why: a.why, prev: a.prev, key: a.item.key, name: a.item.name, price: a.item.price, store: a.item.store, cond: a.item.cond, cartUrl: a.item.cartUrl, url: a.item.url, reason: a.item.deal?.reason })),
         market: state.readJson('market.json')?.t ?? null,
         cats: catNames,
         watchlist: stores.flatMap(s => watchStatus[s] ?? []),
@@ -507,8 +554,8 @@ async function cmdWatch({ ui = false } = {}) {
       if (s === 'l') { printTable(sortItems(Object.values(current).flat()), { numbered: false }); return; }
       const item = recent[+s - 1]?.item;
       if (!item) { if (s) console.log(c.dim('沒有這個編號')); return; }
-      console.log(c.yellow(`加入購物車: ${item.name.slice(0, 80)}`));
-      await addToCart(item, config.cart);
+      console.log(c.yellow(`${item.cartUrl ? '加入購物車' : '開商品頁（第三方賣家）'}: ${item.name.slice(0, 80)}`));
+      if (item.cartUrl) await addToCart(item, config.cart); else openUrl(item.url, config.cart.browser);
     });
   }
   await Promise.all(stores.map(loop));

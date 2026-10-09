@@ -46,11 +46,11 @@ const limits = { bb: limiter(10, 0), wm: limiter(2, 1200) };
 
 export function setPace(host, max, gapMs) { limits[host] = limiter(max, gapMs); }
 
-export function get(host, url, { timeout = 12000, retries = 1 } = {}) {
+export function get(host, url, { timeout = 12000, retries = 1, headers } = {}) {
   return limits[host](async () => {
     for (let attempt = 0; ; attempt++) {
       try {
-        const res = await fetch(url, { headers: HEADERS[host], signal: AbortSignal.timeout(timeout) });
+        const res = await fetch(url, { headers: { ...HEADERS[host], ...headers }, signal: AbortSignal.timeout(timeout) });
         return { status: res.status, body: await res.text() };
       } catch (err) {
         if (attempt >= retries) throw new Error(`${host} ${err.name === 'TimeoutError' ? '逾時' : err.cause?.code || err.message}`);

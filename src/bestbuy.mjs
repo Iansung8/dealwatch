@@ -1,7 +1,7 @@
 // Best Buy：走官網前端用的 GraphQL gateway（GET），一次請求拿到整頁商品與每個 open-box 成色的價格。
 import { get, Blocked } from './http.mjs';
 
-const PRODUCT_FIELDS = 'skuId condition{type}name{short}whatItIs url{pdp}seller{classification}price(input:$price){customerPrice displayableRegularPrice}buyingOptions{type pdpUrl product{skuId openBoxCondition price(input:$price){customerPrice}}}';
+const PRODUCT_FIELDS = 'skuId dotComDisplayStatus condition{type}name{short}whatItIs url{pdp}seller{classification}price(input:$price){customerPrice displayableRegularPrice}buyingOptions{type pdpUrl product{skuId openBoxCondition price(input:$price){customerPrice}}}';
 const SEARCH_QUERY = `query S($input:SearchInput!$pagination:SearchPagination!$filter:SearchFilter$sort:SearchSort$price:ProductItemPriceInput!){search(input:$input pagination:$pagination filter:$filter sort:$sort){numFound documents{...on SearchProduct{product{${PRODUCT_FIELDS}}}}}}`;
 const PRODUCT_QUERY = `query P($id:String!$price:ProductItemPriceInput!){productBySkuId(skuId:$id){${PRODUCT_FIELDS}}}`;
 
@@ -55,13 +55,14 @@ export async function product(sku) {
 
 function normalize(p, condition) {
   if (!p?.skuId || !p.name?.short) return [];
+  const thirdParty = p.seller?.classification === '3P';
   const base = {
     store: 'bb',
     id: p.skuId,
     name: p.name.short,
     type: (p.whatItIs ?? []).join(' '),
-    seller: p.seller?.classification === '3P' ? '3P賣家' : 'BestBuy',
-    inStock: true,
+    seller: thirdParty ? '3P賣家' : 'BestBuy',
+    inStock: p.dotComDisplayStatus !== 'inactive',
   };
   const newPrice = p.price?.customerPrice;
 
@@ -96,7 +97,36 @@ function normalize(p, condition) {
     cond: refurb ? `Refurb${grade ? ' ' + grade : ''}` : 'New',
     price: newPrice,
     ref: p.price?.displayableRegularPrice,
-    url: p.url?.pdp,
-    cartUrl: cartUrl(p.skuId),
+    // 帶 /sku/ 的網址才會開到這個賣家的這一件；只有共用頁網址時可能開到同款的全新品
+    url: p.buyingOptions?.find(b => b.product?.skuId === p.skuId && b.product.openBoxCondition == null)?.pdpUrl ?? p.url?.pdp,
+    // Best Buy 的加入購物車連結不支援 Marketplace 第三方賣家的商品，只能到商品頁按
+    cartUrl: thirdParty ? null : cartUrl(p.skuId),
   }];
+}
+
+// 自營商品（Best Buy 自己出貨的全新 / 整新品）有沒有貨：可配送或可門市取貨就算有。
+// 查不到或回應異常回傳 null（未知）。第三方賣家的商品這個端點一律回不可配送，不能用，要靠 pageStock。
+export async function available(sku, zip) {
+  const url = `https://www.bestbuy.com/fulfillment/shipping/api/v1/fulfillment/sku;skuId=${sku};postalCode=${zip || '55423'};deliveryDateOption=EARLIEST_AVAILABLE_DATE`;
+  try {
+    const { status, body } = await get('bb', url, { timeout: 8000, retries: 0, headers: { 'x-client-id': 'FRV' } });
+    const info = status === 200 ? JSON.parse(body).responseInfos?.[0] : null;
+    return info ? !!(info.shippingEligible || info.pickupEligible) : null;
+  } catch { return null; }
+}
+
+// 用真正的瀏覽器開商品頁，看主要的購買按鈕是「Add to cart」還是「Sold Out」之類。
+// 頁面上第一顆購買類按鈕就是主按鈕，後面的是推薦商品的。回傳 true / false，判斷不出來回傳 null。
+const BUY_BUTTON = `(() => {
+  const texts = [...document.querySelectorAll('button')].map(b => b.innerText.trim());
+  const main = texts.find(t => /^(add to cart|pre-?order|sold out|notify me|coming soon|unavailable|check stores|find a store)/i.test(t));
+  return main ?? '';
+})()`;
+
+export async function pageStock(browser, url) {
+  try {
+    const text = await browser.evaluate(url, BUY_BUTTON, { until: v => v !== '', timeout: 12000 });
+    if (!text) return null;
+    return /^(add to cart|pre-?order)/i.test(text);
+  } catch { return null; }
 }
