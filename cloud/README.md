@@ -1,6 +1,6 @@
 # 在 Grok Bot / Muse 上 24 小時執行
 
-這份腳本沒有任何 npm 依賴，任何有 Node.js 20+ 的 Linux 機器都能跑，
+這份腳本沒有任何 npm 依賴，完整功能使用 Node.js 22+；Node.js 20 可執行直接 HTTP 模式（`WALMART_VIA=http`），
 所以放到 Grok Bot、Muse 這類有常駐雲端電腦的 agent 平台只需要三步：把資料夾交給它、設好推播、叫它啟動。
 
 雲端沒有你的瀏覽器，所以用 `--headless`：不開瀏覽器、不讀鍵盤，提醒改用推播送到你手機，
@@ -29,7 +29,7 @@ ntfy 的 topic 等於密碼，請取一個別人猜不到的名字。
 ```text
 我上傳了一個叫 dealwatch 的 Node.js 專案。請幫我：
 
-1. 確認機器上有 Node.js 20 以上（沒有就安裝）。專案沒有 npm 依賴，不需要 npm install。
+1. 確認機器上有 Node.js 22 以上（沒有就安裝）。專案沒有 npm 依賴，不需要 npm install。部署前先執行 `node dealwatch.mjs doctor`，用法見 [部署前診斷](../docs/preflight.md)。
 2. 在專案根目錄建立 .env，內容是 LINE_CHANNEL_ID=<我的 Channel ID> 和 LINE_CHANNEL_SECRET=<我的 Channel secret> 兩行。
    設好後執行 node dealwatch.mjs notify-test，確認我的 LINE 有收到測試訊息。
 3. 在專案資料夾執行：nohup bash cloud/start.sh >/dev/null 2>&1 &

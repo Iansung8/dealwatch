@@ -19,10 +19,15 @@ export const findBrowser = () => (CANDIDATES[process.platform] ?? []).find(p => 
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+export function requireBrowserRuntime() {
+  if (typeof globalThis.WebSocket !== 'function') throw new Error('瀏覽器模式需要內建 WebSocket；請使用 Node.js 22 以上。直接 HTTP 模式可用 WALMART_VIA=http。');
+}
+
 export class Browser {
   // cdpUrl：接到別處已經在跑的瀏覽器（例如 NAS 上的 Chromium 容器），這種模式下不會自己啟動或關閉瀏覽器
-  constructor({ path, profileDir, port = 9333, cdpUrl = '' }) {
-    Object.assign(this, { path: path || findBrowser(), profileDir, port, nextId: 1, pending: new Map(), waiters: [], spawned: false });
+  // idleMs：載入都做完後過多久把分頁換成空白頁，0 = 不換
+  constructor({ path, profileDir, port = 9333, cdpUrl = '', commandTimeout = 10000, idleMs = 30000 }) {
+    Object.assign(this, { path: path || findBrowser(), profileDir, port, commandTimeout, idleMs, hold: false, nextId: 1, pending: new Map(), waiters: [], spawned: false });
     this.remote = !!cdpUrl;
     this.base = (cdpUrl || `http://127.0.0.1:${port}`).replace(/\/$/, '');
   }
@@ -35,6 +40,7 @@ export class Browser {
   // 已經有瀏覽器在跑就直接接上，否則啟動一個
   ready() {
     return this.starting ??= (async () => {
+      requireBrowserRuntime();
       let info = await this.version().catch(() => null);
       if (!info && this.remote) throw new Error(`連不上瀏覽器 ${this.base}（瀏覽器容器還沒啟動完成，或沒開遠端除錯埠）`);
       if (!info) {
@@ -47,9 +53,19 @@ export class Browser {
         if (!info) throw new Error('瀏覽器啟動逾時');
       }
       this.ws = new WebSocket(info.webSocketDebuggerUrl);
-      await new Promise((resolve, reject) => { this.ws.onopen = resolve; this.ws.onerror = () => reject(new Error('連不上瀏覽器的除錯埠')); });
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => { this.ws.close(); reject(new Error('瀏覽器除錯埠連線逾時')); }, this.commandTimeout);
+        this.ws.onopen = () => { clearTimeout(timer); resolve(); };
+        this.ws.onerror = () => { clearTimeout(timer); reject(new Error('連不上瀏覽器的除錯埠')); };
+      });
       this.ws.onmessage = ev => this.onMessage(JSON.parse(ev.data));
-      this.ws.onclose = () => { this.starting = null; for (const p of this.pending.values()) p.reject(new Error('瀏覽器已關閉')); this.pending.clear(); };
+      this.ws.onclose = () => {
+        this.starting = null;
+        for (const p of this.pending.values()) { clearTimeout(p.timer); p.reject(new Error('瀏覽器已關閉')); }
+        this.pending.clear();
+        for (const w of this.waiters) { clearTimeout(w.timer); w.reject(new Error('瀏覽器已關閉')); }
+        this.waiters = [];
+      };
 
       const { targetInfos } = await this.send('Target.getTargets');
       this.targetId = targetInfos.find(t => t.type === 'page')?.targetId ?? (await this.send('Target.createTarget', { url: 'about:blank' })).targetId;
@@ -61,6 +77,7 @@ export class Browser {
   onMessage(msg) {
     if (msg.id) {
       const p = this.pending.get(msg.id);
+      clearTimeout(p?.timer);
       this.pending.delete(msg.id);
       if (msg.error) p?.reject(new Error(msg.error.message)); else p?.resolve(msg.result);
       return;
@@ -76,29 +93,47 @@ export class Browser {
   send(method, params = {}, sessionId) {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
-      this.ws.send(JSON.stringify({ id, method, params, ...(sessionId && { sessionId }) }));
+      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`瀏覽器指令逾時: ${method}`)); }, this.commandTimeout);
+      this.pending.set(id, { resolve, reject, timer });
+      try { this.ws.send(JSON.stringify({ id, method, params, ...(sessionId && { sessionId }) })); }
+      catch (err) { clearTimeout(timer); this.pending.delete(id); reject(err); }
     });
   }
 
   waitEvent(method, timeout) {
     return new Promise((resolve, reject) => {
-      const waiter = { method, resolve };
+      const waiter = { method, resolve, reject };
       waiter.timer = setTimeout(() => { this.waiters = this.waiters.filter(w => w !== waiter); reject(new Error('頁面載入逾時')); }, timeout);
       this.waiters.push(waiter);
     });
   }
 
-  // 只有一個分頁，所有載入都排隊依序做
-  serial(fn) {
+  // 只有一個分頁，所有載入都排隊依序做。排隊清空 idleMs 後把分頁換成空白頁：
+  // 網站的腳本（尤其是人機驗證的指紋腳本）留在分頁上，兩輪之間會一直吃 CPU、記憶體並寫入設定檔。
+  serial(fn, { idle = false } = {}) {
+    clearTimeout(this.idleTimer);
     const job = (this.chain ?? Promise.resolve()).then(fn);
-    this.chain = job.catch(() => {});
+    const chain = this.chain = job.catch(() => {});
+    if (!idle && this.idleMs > 0) chain.then(() => {
+      if (this.chain !== chain) return; // 後面還有排隊的載入，由最後一個負責
+      this.idleTimer = setTimeout(() => this.blank(), this.idleMs);
+      this.idleTimer.unref?.();
+    });
     return job;
+  }
+
+  // 換成空白頁。hold 時保留目前頁面（等你處理人機驗證或登入）；連線已關就不重連
+  blank() {
+    return this.serial(async () => {
+      if (this.hold || !this.starting || !this.session) return;
+      await this.navigate('about:blank', 5000).catch(() => {});
+    }, { idle: true });
   }
 
   async navigate(url, timeout) {
     await this.ready();
     const loaded = this.waitEvent('Page.domContentEventFired', timeout);
+    loaded.catch(() => {}); // navigate 失敗時，事件逾時也有處理者。
     const nav = await this.send('Page.navigate', { url }, this.session);
     if (nav.errorText) { loaded.catch(() => {}); throw new Error(`瀏覽器載入失敗: ${nav.errorText}`); }
     await loaded;
@@ -133,8 +168,11 @@ export class Browser {
 
   // 只關掉自己啟動的瀏覽器；keepOpen 時留著視窗（等你處理人機驗證或登入）
   async dispose() {
+    clearTimeout(this.idleTimer);
     if (!this.starting) return;
     await this.starting.catch(() => {});
+    // 接到別處的瀏覽器時不關它，但把分頁換回空白頁（hold 時保留）
+    if (this.remote && this.idleMs > 0) await Promise.race([this.blank(), sleep(6000)]);
     if (this.spawned && !this.keepOpen) await Promise.race([this.send('Browser.close').catch(() => {}), sleep(1500)]);
     this.ws?.close();
   }

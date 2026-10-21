@@ -1,0 +1,11 @@
+{
+  "name": "dealwatch",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node --test",
+    "doctor": "node dealwatch.mjs doctor",
+    "doctor:offline": "node dealwatch.mjs doctor --offline"
+  }
+}

@@ -15,6 +15,7 @@ function authorized(req, password) {
 }
 
 export function startUi({ port, host = '127.0.0.1', password = '', getState, getLog, rescan, setPaused, notifyTest }) {
+  if (!['127.0.0.1', '::1', 'localhost'].includes(host) && !password) throw new Error('對外監聽需要設定 UI_PASSWORD；本機測試可使用 UI_HOST=127.0.0.1。');
   const server = http.createServer(async (req, res) => {
     const json = (code, body) => { res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); res.end(JSON.stringify(body)); };
     try {
@@ -41,6 +42,6 @@ export function startUi({ port, host = '127.0.0.1', password = '', getState, get
   });
   return new Promise((resolve, reject) => {
     server.once('error', err => reject(new Error(err.code === 'EADDRINUSE' ? `port ${port} 已被占用（dealwatch ui 是不是已經在跑？）` : err.message)));
-    server.listen(port, host, resolve);
+    server.listen(port, host, () => resolve(server));
   });
 }

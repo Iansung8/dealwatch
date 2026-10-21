@@ -179,9 +179,10 @@ function priceCell(i) {
 function render() {
   if (!data) return;
   $('stores').innerHTML = Object.entries(data.stores).map(([id, s]) => {
-    const failing = s.error && !s.count;
+    const failing = !!s.error;
     const cls = s.paused ? 'err' : failing ? 'err' : s.scanning ? 'busy' : '';
-    const detail = s.paused ? '已暫停' : failing ? esc(s.error) : s.t ? `${s.count ?? 0} 筆 · ${ago(s.t)}${s.viaBrowser ? ' · 經瀏覽器' : ''}` : '第一次掃描中…';
+    const success = s.lastSuccess ? `最近完整成功：${ago(s.lastSuccess)}` : '尚無完整成功紀錄';
+    const detail = s.paused ? '已暫停' : failing ? `${esc(s.error)} · ${success}` : s.t ? `${s.count ?? 0} 筆 · ${success}${s.viaBrowser ? ' · 經瀏覽器' : ''}` : '第一次掃描中…';
     return `<span class="pill ${failing && !s.paused ? 'err' : ''}" title="${esc(s.error || '')}"><span class="dot ${cls}"></span><b>${esc(s.name)}</b> ${detail}
       <button data-pause="${esc(id)}" data-on="${s.paused ? 0 : 1}">${s.paused ? '恢復' : '暫停'}</button></span> `;
   }).join('');
@@ -232,7 +233,8 @@ function render() {
     const store = w.store === 'bb' ? 'Best Buy' : 'Walmart';
     if (w.error) return `<div class="alert"><span class="tag DROP">查詢失敗</span><span>${store} ${esc(w.id)} <span class="sub">${esc(w.error)}</span></span></div>`;
     const steal = data.items.some(i => i.store === w.store && i.id === w.id && i.deal?.steal);
-    return `<div class="alert"><span class="tag ${steal ? 'STEAL' : w.inStock ? 'NEW' : 'DROP'}">${steal ? '★ 撿漏' : w.inStock ? '有貨' : '缺貨'}</span>
+    const stockUnknown = w.stockKnown === false;
+    return `<div class="alert"><span class="tag ${steal ? 'STEAL' : stockUnknown ? '' : w.inStock ? 'NEW' : 'DROP'}">${steal ? '★ 撿漏' : stockUnknown ? '庫存待確認' : w.inStock ? '有貨' : '缺貨'}</span>
       <span>${store} ${esc(w.inStock ? w.cond : '')} <b>${money(w.price)}</b> <a href="${esc(w.url)}" target="_blank" rel="noopener" style="color:inherit">${esc(w.name)}</a>
       ${w.maxPrice ? `<div class="sub">到價通知：${money(w.maxPrice)} 以下</div>` : ''}</span></div>`;
   }).join('');

@@ -1,5 +1,5 @@
 // Walmart：抓搜尋頁內嵌的 __NEXT_DATA__ JSON。sort=new 就是「最新上架」排序。
-import { get, Blocked } from './http.mjs';
+import { get, Blocked, RequestError, requireSuccess } from './http.mjs';
 
 // 指定 offerId 才能鎖定搜尋結果看到的那個賣家；只給 itemId 會加入當下 buy box 的賣家
 export const cartUrl = ({ id, offerId }) =>
@@ -17,24 +17,33 @@ export function searchUrl({ query, sort = 'new', page = 1, minPrice, maxPrice })
   return u.href;
 }
 
-// 取得頁面的兩條路：直接 HTTP 請求（快），或請一個真正的瀏覽器視窗載入（慢但不會被當成自動化流量）。
+// 取得頁面的兩條路：直接 HTTP 請求，或由真正的瀏覽器載入；兩者都可能遇到人機驗證。
 // via: 'http' 只用 HTTP；'browser' 只用瀏覽器；'auto' 先試 HTTP，被擋就改用瀏覽器。
 let mode = 'http', browser = null, viaBrowser = false;
 const httpBlocked = { search: false, product: false };
 let queue = Promise.resolve();
 
 export function configure({ via = 'auto', browser: b = null, startInBrowser = false } = {}) {
+  if (!['auto', 'http', 'browser'].includes(via)) throw new Error('Walmart via 必須是 auto、http 或 browser');
+  if (via === 'browser' && !b) throw new Error('Walmart browser 模式需要瀏覽器');
   mode = via;
   browser = b;
+  httpBlocked.search = httpBlocked.product = false;
   viaBrowser = !!b && (via === 'browser' || (via === 'auto' && startInBrowser));
 }
 
 export const usingBrowser = () => viaBrowser;
 
-async function httpHtml(url) {
-  const { status, body } = await get('wm', url, { timeout: 15000 });
-  if (status === 403 || status === 412 || status === 429) throw new Blocked(`Walmart 拒絕請求 (HTTP ${status}，被判定為自動化流量)`);
-  return body;
+async function httpHtml(url, httpOptions) {
+  const response = await get('wm', url, { timeout: 15000, ...httpOptions });
+  requireSuccess('Walmart', response);
+  return response.body;
+}
+
+// 診斷使用同一組 HTTP 標頭與解析器，單次請求，不啟動瀏覽器或寫入狀態。
+export async function probe(opts, httpOptions) {
+  const items = parse(await httpHtml(searchUrl(opts), httpOptions));
+  return { total: items.length, items };
 }
 
 // 瀏覽器只有一個分頁，一頁一頁慢慢載
@@ -59,11 +68,14 @@ async function load(kind, url, parser) {
       if (kind === 'search') viaBrowser = true;
     }
   }
-  try { return parser(await browserHtml(url)); }
-  catch (err) {
+  try {
+    const items = parser(await browserHtml(url));
+    browser.hold = false; // 驗證已通過，閒置時可以換回空白頁
+    return items;
+  } catch (err) {
     if (!(err instanceof Blocked)) throw err;
     // 視窗留著並帶到最前面，等你親手通過驗證；通過後下一輪就會恢復
-    browser.keepOpen = true;
+    browser.keepOpen = browser.hold = true;
     await browser.focus();
     throw new Blocked(browser.remote
       ? 'Walmart 在瀏覽器裡要求人機驗證，請從網頁介面開啟遠端瀏覽器視窗手動完成（按住按鈕那種）'
@@ -80,10 +92,14 @@ export async function search(opts) {
 export const product = id => load('product', `https://www.walmart.com/ip/${id}`, parseProduct);
 
 function nextData(html) {
-  if (html.includes('Robot or human?')) throw new Blocked('Walmart 要求人機驗證');
-  const m = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
-  if (!m) throw new Error('Walmart 頁面格式不符（找不到 __NEXT_DATA__）');
-  return JSON.parse(m[1]).props?.pageProps?.initialData;
+  if (/Robot or human\?|<title[^>]*>\s*Access Denied|id=["']px-captcha["']/i.test(html)) throw new Blocked('Walmart 要求人機驗證');
+  const m = html.match(/<script\b(?=[^>]*\bid=["']__NEXT_DATA__["'])[^>]*>([\s\S]*?)<\/script>/i);
+  if (!m) throw new RequestError('Walmart 頁面格式不符（找不到 __NEXT_DATA__）', 'format');
+  try {
+    const data = JSON.parse(m[1]).props?.pageProps?.initialData;
+    if (!data || typeof data !== 'object') throw new Error();
+    return data;
+  } catch { throw new RequestError('Walmart __NEXT_DATA__ 格式不符', 'format'); }
 }
 
 function parseProduct(html) {
@@ -110,7 +126,8 @@ function parseProduct(html) {
 
 // 解析一頁搜尋結果 HTML（也給 ingest 指令用，來源可以是瀏覽器另存的網頁）
 export function parse(html) {
-  const stacks = nextData(html)?.searchResult?.itemStacks ?? [];
+  const stacks = nextData(html)?.searchResult?.itemStacks;
+  if (!Array.isArray(stacks)) throw new RequestError('Walmart 回應缺少搜尋結果陣列', 'format');
   return stacks.flatMap(s => s.items ?? []).filter(i => i.__typename === 'Product' && i.usItemId).map(normalize);
 }
 

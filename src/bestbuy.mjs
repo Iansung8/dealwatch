@@ -1,5 +1,5 @@
 // Best Buy：走官網前端用的 GraphQL gateway（GET），一次請求拿到整頁商品與每個 open-box 成色的價格。
-import { get, Blocked } from './http.mjs';
+import { get, Blocked, RequestError, requireSuccess } from './http.mjs';
 
 const PRODUCT_FIELDS = 'skuId dotComDisplayStatus condition{type}name{short}whatItIs url{pdp}seller{classification}price(input:$price){customerPrice displayableRegularPrice}buyingOptions{type pdpUrl product{skuId openBoxCondition price(input:$price){customerPrice}}}';
 const SEARCH_QUERY = `query S($input:SearchInput!$pagination:SearchPagination!$filter:SearchFilter$sort:SearchSort$price:ProductItemPriceInput!){search(input:$input pagination:$pagination filter:$filter sort:$sort){numFound documents{...on SearchProduct{product{${PRODUCT_FIELDS}}}}}}`;
@@ -13,15 +13,28 @@ export const cartUrl = (sku, obCode) =>
 
 export const CHECKOUT_URL = 'https://www.bestbuy.com/checkout/r/fast-track';
 
-async function gql(query, variables) {
+export function openBoxUrl(pdp, condition) {
+  const url = new URL(pdp, 'https://www.bestbuy.com');
+  if (!url.pathname.replace(/\/$/, '').endsWith('/openbox')) url.pathname = `${url.pathname.replace(/\/$/, '')}/openbox`;
+  url.searchParams.set('condition', condition.toLowerCase());
+  return url.href;
+}
+
+async function gql(query, variables, httpOptions) {
   const url = `https://www.bestbuy.com/gateway/graphql?query=${encodeURIComponent(query)}&variables=${encodeURIComponent(JSON.stringify(variables))}`;
-  const { status, body } = await get('bb', url);
-  if (status === 403 || status === 429) throw new Blocked(`Best Buy 回應 HTTP ${status}`);
-  try { return JSON.parse(body); } catch { throw new Blocked(`Best Buy 回應非 JSON (HTTP ${status})`); }
+  const response = await get('bb', url, httpOptions);
+  requireSuccess('Best Buy', response);
+  const { body } = response;
+  if (/Robot or human\?|<title[^>]*>\s*Access Denied/i.test(body)) throw new Blocked('Best Buy 要求驗證或拒絕存取');
+  try {
+    const json = JSON.parse(body);
+    if (!json || typeof json !== 'object' || Array.isArray(json)) throw new Error();
+    return json;
+  } catch { throw new RequestError('Best Buy 回應格式不符（預期 JSON 物件）', 'format'); }
 }
 
 // condition: 'Open-Box' | 'Refurbished' | 'New' | null(不限)
-export async function search({ query, condition = null, page = 1, size = 100, sort = '', zip = '' }) {
+export async function search({ query, condition = null, page = 1, size = 100, sort = '', zip = '' }, httpOptions) {
   const json = await gql(SEARCH_QUERY, {
     input: { site: 'WWW', queryType: 'SEARCH', query },
     pagination: { pageNumber: page, offset: size },
@@ -36,13 +49,15 @@ export async function search({ query, condition = null, page = 1, size = 100, so
     },
     sort: { sort },
     price: PRICE_INPUT,
-  });
+  }, httpOptions);
   const result = json.data?.search;
   // 個別商品的欄位錯誤會以 partial error 回來，有 documents 就照用；查無結果時 documents 是 null
-  if (!result?.documents) {
-    if (!json.errors?.length || json.errors.every(e => e.extensions?.code === 'NOT_FOUND')) return { total: 0, items: [] };
-    throw new Error(`Best Buy 查詢失敗: ${JSON.stringify(json.errors).slice(0, 200)}`);
+  if (result?.documents == null) {
+    if (json.errors?.length && !json.errors.every(e => e.extensions?.code === 'NOT_FOUND')) throw new RequestError('Best Buy GraphQL 查詢失敗', 'upstream');
+    if (result?.documents === null || json.errors?.length) return { total: 0, items: [] };
+    throw new RequestError('Best Buy 回應缺少 data.search.documents', 'format');
   }
+  if (!Array.isArray(result.documents)) throw new RequestError('Best Buy documents 格式不符', 'format');
   return { total: result.numFound ?? 0, items: result.documents.flatMap(d => normalize(d.product, condition)) };
 }
 
@@ -63,6 +78,7 @@ function normalize(p, condition) {
     type: (p.whatItIs ?? []).join(' '),
     seller: thirdParty ? '3P賣家' : 'BestBuy',
     inStock: p.dotComDisplayStatus !== 'inactive',
+    stockKnown: false, // 僅表示此商品有可追蹤的價格，尚未確認所在地庫存；markStock 查到結果後才改成 true
   };
   const newPrice = p.price?.customerPrice;
 
@@ -81,7 +97,7 @@ function normalize(p, condition) {
       price: best.price,
       ref: newPrice > best.price ? newPrice : p.price?.displayableRegularPrice,
       offers,
-      url: `${best.pdp ?? p.url?.pdp}/openbox?condition=${best.cond.toLowerCase()}`,
+      url: openBoxUrl(best.pdp ?? p.url?.pdp, best.cond),
       cartUrl: cartUrl(p.skuId, best.code),
     }];
   }
@@ -124,6 +140,8 @@ const BUY_BUTTON = `(() => {
 })()`;
 
 export async function pageStock(browser, url) {
+  // 分頁正停在人機驗證頁等人處理時不要換走，當作判斷不出來
+  if (!browser || browser.hold) return null;
   try {
     const text = await browser.evaluate(url, BUY_BUTTON, { until: v => v !== '', timeout: 12000 });
     if (!text) return null;
