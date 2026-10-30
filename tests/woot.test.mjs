@@ -111,10 +111,10 @@ test('SalePrice 是售價；ListPrice 沒有大於售價就忽略', async () => 
     ]),
   });
   const { items } = await search({ query: 'x' }, { fetchImpl: m.fetchImpl });
-  assert.deepEqual(items.map(i => [i.id, i.price, i.ref]), [
-    ['o1:i1', 1200, undefined],
-    ['o2:i2', 1200, 1500],
-    ['o3:i3', 1200, undefined],
+  assert.deepEqual(items.map(i => [i.key, i.price, i.ref]), [
+    ['wt:o1:i1', 1200, undefined],
+    ['wt:o2:i2', 1200, 1500],
+    ['wt:o3:i3', 1200, undefined],
   ]);
 });
 
@@ -132,7 +132,7 @@ test('多規格 Offer 展開成多筆，名稱補上規格屬性', async () => {
     })]),
   });
   const { items } = await search({ query: 'x' }, { fetchImpl: m.fetchImpl });
-  assert.deepEqual(items.map(i => i.id), ['o:a', 'o:b']);
+  assert.deepEqual(items.map(i => i.id), ['dell-optiplex', 'dell-optiplex']);
   assert.deepEqual(items.map(i => i.key), ['wt:o:a', 'wt:o:b']);
   assert.equal(items[0].name, 'Dell OptiPlex 7010 Micro Desktop PC (Open Box) - 32GB | 512GB SSD / Grade A');
   assert.equal(items[1].name, 'Dell OptiPlex 7010 Micro Desktop PC (Open Box) - i5 16GB RAM | 512GB SSD');

@@ -47,7 +47,7 @@ export default {
   },
 
   woot: {
-    limit: 60, // 每個關鍵字最多拿幾件（依上架時間由新到舊）
+    limit: 120, // 每個關鍵字最多拿幾件（依上架時間由新到舊）
   },
 
   temu: {
@@ -127,7 +127,7 @@ export default {
       queries: {
         bestbuy: ['gaming laptop', 'rtx laptop'],
         walmart: ['gaming laptop rtx', 'rtx 5070 ti laptop'],
-        woot: ['gaming laptop', 'rtx laptop'],
+        woot: ['laptop'], // Woot 商品不多，而且關鍵字的每個字都要出現在標題裡，用寬一點的詞再靠分類條件過濾
         temu: ['rtx 5070 ti gaming laptop'],
       },
       type: /laptop|notebook/i,
@@ -139,7 +139,7 @@ export default {
       queries: {
         bestbuy: ['gaming desktop', 'rtx gaming pc'],
         walmart: ['gaming desktop pc rtx', '9800x3d gaming pc'],
-        woot: ['gaming desktop', 'gaming pc rtx'],
+        woot: ['desktop', 'gaming pc'],
         temu: ['rtx 5080 gaming pc'],
       },
       type: /desktop|gaming pc|tower/i,
@@ -152,7 +152,7 @@ export default {
       queries: {
         bestbuy: ['ryzen 9800x3d processor', 'ryzen 9950x3d processor', 'ryzen 7800x3d processor', 'core ultra 9 285k processor'],
         walmart: ['ryzen 9800x3d', 'ryzen 9950x3d'],
-        woot: ['ryzen processor', 'core ultra processor'],
+        woot: ['ryzen', 'processor', 'core ultra'],
         temu: ['ryzen 7 9800x3d'],
       },
       type: /processor|cpu/i,
@@ -169,7 +169,7 @@ export default {
       queries: {
         bestbuy: ['rtx 5070 ti', 'rtx 5080', 'rtx 5090', 'rx 9070 xt', 'graphics card'],
         walmart: ['rtx 5070 ti', 'rtx 5080', 'rtx 5090'],
-        woot: ['rtx 5070 ti', 'rtx 5080', 'rtx 5090', 'geforce rtx'],
+        woot: ['rtx', 'geforce', 'radeon'],
         temu: ['rtx 5080 graphics card', 'rtx 5090 graphics card'],
       },
       type: /graphics card|video card|gpu/i,
@@ -183,7 +183,7 @@ export default {
       queries: {
         bestbuy: ['ddr5 memory', 'ddr5 32gb', 'ddr5 64gb'],
         walmart: ['ddr5 32gb kit', 'ddr5 64gb kit'],
-        woot: ['ddr5 memory'],
+        woot: ['ddr5', 'memory'],
         temu: ['ddr5 32gb desktop memory'],
       },
       type: /memory|ram/i,

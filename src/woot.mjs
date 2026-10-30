@@ -141,7 +141,8 @@ function normalize(offer) {
     const list = money(item.ListPrice);
     return {
       store: 'wt',
-      id: `${offer.Id}:${item.Id}`,
+      // 表格顯示與指定商品比對用商品網址裡的 slug（同一個 Offer 的各規格共用）；去重用的 key 才分到規格
+      id: offer.Slug ?? offer.Id,
       key: `wt:${offer.Id}:${item.Id}`,
       kind,
       cond,
