@@ -1,6 +1,7 @@
 // 部署前診斷：不載入 config／.env，不建立 data，不啟動監控、瀏覽器或推播。
 import * as bestbuy from './bestbuy.mjs';
 import * as walmart from './walmart.mjs';
+import * as woot from './woot.mjs';
 
 const ACTIONS = {
   dns: '檢查 DNS；先用 nslookup 驗證名稱解析。',
@@ -32,7 +33,7 @@ export function parseDoctorArgs(args) {
       const value = args[++i];
       if (!value || value.startsWith('--')) throw new Error(`${key} 需要值`);
       if (key === '--store') {
-        if (!['bb', 'wm'].includes(value)) throw new Error('--store 必須是 bb 或 wm');
+        if (!['bb', 'wm', 'wt'].includes(value)) throw new Error('--store 必須是 bb、wm 或 wt');
         options.stores = [value];
       } else if (key === '--timeout-ms') {
         const timeout = Number(value);
@@ -60,7 +61,9 @@ export async function createDoctorReport(options, { fetchImpl = globalThis.fetch
       try {
         const result = store === 'bb'
           ? await bestbuy.search({ query: 'rtx 5080', size: 1 }, httpOptions)
-          : await walmart.probe({ query: 'rtx 5080', sort: 'new', page: 1 }, httpOptions);
+          : store === 'wt'
+            ? await woot.search({ query: 'rtx 5080', limit: 1 }, httpOptions)
+            : await walmart.probe({ query: 'rtx 5080', sort: 'new', page: 1 }, httpOptions);
         checks.push({ name: store, status: result.items.length ? 'pass' : 'warn', code: result.items.length ? 'ok' : 'empty', durationMs: Date.now() - started, items: result.items.length, total: result.total,
           message: result.items.length ? '商品結構解析成功。' : '查詢結構有效，但沒有可解析的商品；尚不足以確認商品抓取可用。' });
       } catch (err) {
@@ -95,7 +98,7 @@ export async function doctorCli(args) {
     return 2;
   }
   if (options.help) {
-    console.log('node dealwatch.mjs doctor [--offline] [--store bb|wm] [--json] [--timeout-ms 12000] [--cdp-url http://127.0.0.1:9222]\n每站查詢一頁；不讀 .env、不寫 data、不啟動瀏覽器、不發通知。退出碼：0 無失敗（可含警告）、1 診斷失敗、2 參數錯誤。');
+    console.log('node dealwatch.mjs doctor [--offline] [--store bb|wm|wt] [--json] [--timeout-ms 12000] [--cdp-url http://127.0.0.1:9222]\n每站查詢一頁；不讀 .env、不寫 data、不啟動瀏覽器、不發通知。退出碼：0 無失敗（可含警告）、1 診斷失敗、2 參數錯誤。');
     return 0;
   }
   const report = await createDoctorReport(options);

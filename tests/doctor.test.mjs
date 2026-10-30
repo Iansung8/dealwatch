@@ -6,6 +6,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createDoctorReport, parseDoctorArgs, runtimeChecks } from '../src/doctor.mjs';
+import { resetCache as resetWootCache } from '../src/woot.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const bb = { data: { search: { numFound: 1, documents: [{ product: { skuId: '1', name: { short: 'Example GPU' }, price: { customerPrice: 500 }, seller: { classification: '1P' } } }] } } };
@@ -25,6 +26,27 @@ test('doctor 使用實際兩站查詢與標頭，各一次，並解析商品', a
   assert.match(calls[1].url, /walmart\.com\/search/);
   assert.match(calls[1].init.headers.accept, /text\/html/);
   assert.deepEqual(report.checks.filter(c => ['bb', 'wm'].includes(c.name)).map(c => c.items), [1, 1]);
+});
+
+test('doctor --store wt 從官網取 key 後查詢 Woot GraphQL', async () => {
+  resetWootCache();
+  const calls = [];
+  const report = await createDoctorReport(parseDoctorArgs(['--store', 'wt']), { fetchImpl: async (url, init) => {
+    calls.push({ url: String(url), init });
+    if (String(url).includes('cloudfront')) {
+      const offer = { Id: 'o', Title: 'Example GPU', Slug: 'example', Site: { Name: 'Computers.Woot' },
+        Items: [{ Id: 'i', SalePrice: 500, Attributes: [] }] };
+      return new Response(JSON.stringify({ data: { searchOffers: { TotalHits: 1, Offers: [offer] } } }));
+    }
+    return new Response('<script>window.__WOOT_GQL__ = { url: "https://d24qg5zsx8xdc4.cloudfront.net/graphql", apiKey: "da2-test" };</script>');
+  } });
+  resetWootCache();
+  assert.equal(report.exitCode, 0);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].init.headers['x-api-key'], 'da2-test');
+  assert.equal(report.checks.at(-1).name, 'wt');
+  assert.equal(report.checks.at(-1).status, 'pass');
+  assert.equal(report.checks.at(-1).items, 1);
 });
 
 test('doctor offline 完全不發送請求；Node 20 的 WebSocket 缺少是警告', async () => {
