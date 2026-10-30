@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { storeName, storeShort } from './stores.mjs';
 
 const tty = process.stdout.isTTY;
 const color = (code, s) => (tty ? `\x1b[${code}m${s}\x1b[0m` : s);
@@ -24,7 +25,7 @@ export function printTable(items, { numbered = true } = {}) {
   const nameW = Math.max(24, Math.min(46, (process.stdout.columns || 150) - 100));
   const rows = items.map((it, i) => [
     (it.deal?.steal ? '★' : '') + (numbered ? String(i + 1) : ''),
-    it.store === 'bb' ? 'BB' : 'WM',
+    storeShort(it.store),
     it.id,
     it.cat ?? '',
     it.cond,
@@ -53,7 +54,7 @@ export function printTable(items, { numbered = true } = {}) {
 export function alertLine({ why, item, prev }) {
   const tag = why === 'STEAL' ? c.bold(c.green('[撿漏]')) : why === 'NEW' ? c.cyan('[上新]') : c.green(`[降價 ${fmt(prev)}->${fmt(item.price)}]`);
   const off = offPct(item) ? ` (-${offPct(item)}% vs ${fmt(item.ref)})` : '';
-  const line = `${tag} ${item.store === 'bb' ? 'BestBuy' : 'Walmart'} ${item.cond} $${fmt(item.price)}${off} | ${item.seller} | ${shortName(item.name).slice(0, 90)}`;
+  const line = `${tag} ${storeName(item.store)} ${item.cond} $${fmt(item.price)}${off} | ${item.seller} | ${shortName(item.name).slice(0, 90)}`;
   return why === 'STEAL' ? `${line}\n   ${item.deal.reason}` : line;
 }
 
@@ -61,7 +62,7 @@ function alertText({ why, item, prev }) {
   const off = offPct(item) ? ` (-${offPct(item)}%，原價 $${fmt(item.ref)})` : '';
   const head = why === 'STEAL' ? '💎 撿漏' : why === 'NEW' ? '🆕 上新' : `📉 降價 $${fmt(prev)} → $${fmt(item.price)}`;
   return [
-    `${head}｜${item.store === 'bb' ? 'Best Buy' : 'Walmart'} ${item.cond}`,
+    `${head}｜${storeName(item.store)} ${item.cond}`,
     shortName(item.name).slice(0, 140),
     `$${fmt(item.price)}${off}｜${item.seller}`,
     ...(why === 'STEAL' ? [item.deal.reason] : []),

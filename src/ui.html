@@ -215,7 +215,7 @@ function render() {
   $('rows').innerHTML = items.length ? items.map(i => `
     <tr class="${i.deal?.steal ? 'steal' : ''}">
       <td class="star" title="${esc(i.deal?.reason || '')}">${i.deal?.steal ? '★' : ''}</td>
-      <td><span class="store">${i.store === 'bb' ? 'BB' : 'WM'}</span></td>
+      <td><span class="store">${storeShort(i.store)}</span></td>
       <td>${esc(CAT[i.cat] ?? i.cat)}</td>
       <td>${esc(i.cond)}</td>
       <td class="name"><a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.name)}</a>${i.deal?.reason ? `<div class="sub">${esc(i.deal.reason)}</div>` : ''}</td>
@@ -230,7 +230,7 @@ function render() {
 
   $('watchBox').hidden = !data.watchlist.length;
   $('watch').innerHTML = data.watchlist.map(w => {
-    const store = w.store === 'bb' ? 'Best Buy' : 'Walmart';
+    const store = storeName(w.store);
     if (w.error) return `<div class="alert"><span class="tag DROP">查詢失敗</span><span>${store} ${esc(w.id)} <span class="sub">${esc(w.error)}</span></span></div>`;
     const steal = data.items.some(i => i.store === w.store && i.id === w.id && i.deal?.steal);
     const stockUnknown = w.stockKnown === false;
@@ -243,16 +243,20 @@ function render() {
   $('alerts').innerHTML = data.alerts.map(a => `
     <div class="alert"><time>${new Date(a.t).toLocaleTimeString()}</time>
       <span class="tag ${a.why}">${WHY[a.why]}${a.why === 'DROP' ? ` ${money(a.prev)}→${money(a.price)}` : ''}</span>
-      <span>${a.store === 'bb' ? 'Best Buy' : 'Walmart'} ${esc(a.cond)} <b>${money(a.price)}</b> ${esc(a.name)}${a.reason ? `<div class="sub">${esc(a.reason)}</div>` : ''}</span>
+      <span>${storeName(a.store)} ${esc(a.cond)} <b>${money(a.price)}</b> ${esc(a.name)}${a.reason ? `<div class="sub">${esc(a.reason)}</div>` : ''}</span>
       <span class="spacer"></span>${buyButton(a)}</div>`).join('');
 }
 
-// Best Buy 第三方賣家的商品沒有加入購物車連結，只能開商品頁自己按
+// Best Buy 第三方賣家、Woot、Temu 的商品沒有加入購物車連結，只能開商品頁自己按
+const STORE_NAMES = { bb: ['Best Buy', 'BB'], wm: ['Walmart', 'WM'], wt: ['Woot', 'WT'], tm: ['Temu', 'TM'] };
+const storeName = code => STORE_NAMES[code]?.[0] ?? code;
+const storeShort = code => STORE_NAMES[code]?.[1] ?? String(code).toUpperCase();
+
 function buyButton(i) {
   if (i.soldOut) return '<span class="sub">已售完</span>';
   return i.cartUrl
     ? `<button data-cart="${esc(i.cartUrl)}" data-store="${i.store}">加入購物車</button>`
-    : `<a class="linkbtn" href="${esc(i.url)}" target="_blank" rel="noopener" title="第三方賣家的商品要到商品頁加入購物車">開商品頁</a>`;
+    : `<a class="linkbtn" href="${esc(i.url)}" target="_blank" rel="noopener" title="這個商品沒有加入購物車連結，要到商品頁自己按">開商品頁</a>`;
 }
 
 // 在「你現在看這個頁面的瀏覽器」開分頁，所以用的是這台電腦上已登入的帳號，跟 dealwatch 跑在哪台機器無關

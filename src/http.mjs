@@ -15,6 +15,14 @@ const HEADERS = {
     'sec-fetch-site': 'same-origin',
     referer: 'https://www.bestbuy.com/',
   },
+  // Woot：AppSync GraphQL，要帶官網頁面裡公開的 x-api-key（由 src/woot.mjs 加）
+  wt: {
+    'user-agent': UA,
+    accept: 'application/json, text/html;q=0.9, */*;q=0.8',
+    'accept-language': 'en-US,en;q=0.9',
+    origin: 'https://www.woot.com',
+    referer: 'https://www.woot.com/',
+  },
   // Walmart 用最精簡的標頭即可；多送 sec-* 反而會被導到驗證頁
   wm: {
     'user-agent': UA,
@@ -66,7 +74,7 @@ function limiter(max, gapMs) {
 }
 
 // Walmart 對密集請求很敏感，預設就放慢；間隔可由 config.walmart.gapMs 調整
-const limits = { bb: limiter(10, 0), wm: limiter(2, 1200) };
+const limits = { bb: limiter(10, 0), wm: limiter(2, 1200), wt: limiter(4, 250) };
 
 export function setPace(host, max, gapMs) { limits[host] = limiter(max, gapMs); }
 

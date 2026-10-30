@@ -7,6 +7,9 @@ import { fileURLToPath } from 'node:url';
 import config from '../config.mjs';
 import * as bestbuy from './bestbuy.mjs';
 import * as walmart from './walmart.mjs';
+import * as woot from './woot.mjs';
+import * as temu from './temu.mjs';
+import { STORES as STORE_META } from './stores.mjs';
 import { Blocked, setPace } from './http.mjs';
 import { evaluate, parseSpecs } from './specs.mjs';
 import { State } from './state.mjs';
@@ -20,7 +23,7 @@ import { c, printTable, alertLine, offPct, push, pushTargets } from './notify.mj
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 // 金鑰放 .env（不進版控），沒有這個檔就略過
 try { process.loadEnvFile(path.join(ROOT, '.env')); } catch {}
-const STORES = { bb: 'Best Buy', wm: 'Walmart' };
+const STORES = Object.fromEntries(Object.entries(STORE_META).map(([code, s]) => [code, s.name]));
 
 // 環境變數可以蓋過 config 裡跟部署環境有關的設定（Docker / NAS 上不用改檔案）
 const uiCfg = {
@@ -35,7 +38,7 @@ const cdpUrl = process.env.DEALWATCH_CDP_URL || config.walmart.cdpUrl || '';
 const walmartVia = process.env.WALMART_VIA || config.walmart.via;
 // 有設 ZIP_CODE 就蓋過 config.zip；設成空字串代表不限定取貨地點
 if (process.env.ZIP_CODE !== undefined) config.zip = process.env.ZIP_CODE.trim();
-for (const [store, key] of [['bb', 'BESTBUY_INTERVAL_SEC'], ['wm', 'WALMART_INTERVAL_SEC']]) {
+for (const [store, key] of [['bb', 'BESTBUY_INTERVAL_SEC'], ['wm', 'WALMART_INTERVAL_SEC'], ['wt', 'WOOT_INTERVAL_SEC'], ['tm', 'TEMU_INTERVAL_SEC']]) {
   if (+process.env[key] > 0) config.intervalSec[store] = +process.env[key];
 }
 
@@ -52,7 +55,7 @@ for (const method of ['log', 'error']) {
 
 const HELP = `用法: node dealwatch.mjs <指令> [選項]
 
-  doctor              部署前唯讀診斷（--offline / --store bb|wm / --json）
+  doctor              部署前唯讀診斷（--offline / --store bb|wm|wt / --json）
   scan                掃一次兩家店，列出所有符合條件的商品（預設指令）
   watch               持續監控，有上新 / 降價就提醒；輸入提醒編號可直接開購物車
   ui                  持續監控 + 開一個本機網頁看結果、篩選、一鍵加入購物車
@@ -67,7 +70,7 @@ const HELP = `用法: node dealwatch.mjs <指令> [選項]
   ingest <檔案.html>  解析瀏覽器另存的 Walmart 搜尋頁，一樣做過濾 / 比對 / 提醒
 
 選項:
-  --store bb|wm       只跑一家店
+  --store bb,wt       只跑指定的店（bb Best Buy、wm Walmart、wt Woot、tm Temu）
   --cat laptop,gpu    只跑指定分類（${Object.keys(config.categories).join(', ')}）
   --steals            只顯示符合撿漏標準（config.steals）的
   --min-off 15        只顯示折扣 >= 15% 的
@@ -91,17 +94,24 @@ function parseArgs(argv) {
 
 const { cmd, rest, flags } = parseArgs(process.argv.slice(2));
 const state = new State(path.join(ROOT, 'data'));
-const stores = flags.store ? [flags.store] : Object.keys(STORES);
+// 預設跑 config.stores 列的店；Temu 要先在專用瀏覽器登入，所以預設不開
+const stores = (flags.store ? flags.store.split(',') : config.stores ?? ['bb', 'wm']).filter(s => {
+  if (STORES[s]) return true;
+  console.error(c.red(`不認得的店家代號 ${s}，可用: ${Object.keys(STORES).join(', ')}`));
+  return false;
+});
 const cats = Object.entries(config.categories).filter(([name]) => !flags.cat || flags.cat.split(',').includes(name));
 const catNames = cats.map(([name]) => name);
 const failed = r => r.blocked || (r.errors.length > 0 && !r.items.length);
-const watchlist = (config.watchlist ?? []).map(parseWatch).filter(w => w && (!flags.store || w.store === flags.store));
+const watchlist = (config.watchlist ?? []).map(parseWatch).filter(w => w && stores.includes(w.store));
 const time = () => new Date().toTimeString().slice(0, 8);
 setPace('wm', 2, config.walmart.gapMs);
 
 // Walmart 直接請求被擋時改用獨立的瀏覽器視窗；被擋過就記 6 小時，這段時間直接走瀏覽器不再白試
 const wmBrowser = new Browser({ path: config.walmart.browserPath, profileDir: path.join(ROOT, 'data', 'chrome-profile'), cdpUrl });
 walmart.configure({ via: walmartVia, browser: wmBrowser, startInBrowser: (state.readJson('walmart-mode.json')?.browserUntil ?? 0) > Date.now() });
+// Temu 只能靠瀏覽器（要登入），跟 Walmart 共用同一個分頁，載入會排隊
+temu.configure({ browser: wmBrowser });
 function saveWalmartHint() {
   if (walmartVia === 'auto' && walmart.usingBrowser()) state.writeJson('walmart-mode.json', { browserUntil: Date.now() + 6 * 36e5 });
 }
@@ -139,6 +149,20 @@ async function bestbuyPages(query, condition) {
   return [first, ...more].flatMap(r => r.items);
 }
 
+// Best Buy 以外的店：一個關鍵字一個工作
+function storeSearch(store, query, cat) {
+  const opts = { query, minPrice: cat.minPrice, maxPrice: cat.maxPrice };
+  if (store === 'wm') return walmartPages(query, cat);
+  if (store === 'wt') return woot.search({ ...opts, limit: config.woot?.limit }).then(r => r.items);
+  if (store === 'tm') return temu.search(opts).then(r => r.items);
+  throw new Error(`沒有 ${store} 的搜尋方式`);
+}
+
+// 指定商品的單品查詢
+function storeProduct(store, id) {
+  return { bb: bestbuy.product, wm: walmart.product, wt: woot.product, tm: temu.product }[store](id);
+}
+
 async function walmartPages(query, cat) {
   const results = await Promise.all(Array.from({ length: config.walmart.pages }, (_, i) =>
     walmart.search({ query, sort: config.walmart.sort, page: i + 1, minPrice: cat.minPrice, maxPrice: cat.maxPrice })));
@@ -150,9 +174,9 @@ async function scanStore(store) {
   const t0 = Date.now();
   const jobs = [];
   for (const [catName, cat] of cats) {
-    for (const query of cat.queries?.[store === 'bb' ? 'bestbuy' : 'walmart'] ?? []) {
+    for (const query of cat.queries?.[STORE_META[store].queries] ?? []) {
       if (store === 'bb') for (const condition of cat.bestbuyConditions ?? config.bestbuy.conditions) jobs.push({ catName, run: () => bestbuyPages(query, condition) });
-      else jobs.push({ catName, run: () => walmartPages(query, cat) });
+      else jobs.push({ catName, run: () => storeSearch(store, query, cat) });
     }
   }
   const settled = await Promise.allSettled(jobs.map(j => j.run()));
@@ -171,7 +195,7 @@ async function scanStore(store) {
   const mine = watchlist.filter(w => w.store === store);
   const watch = await Promise.all(mine.map(async w => {
     try {
-      const forms = await (store === 'bb' ? bestbuy.product(w.id) : walmart.product(w.id));
+      const forms = await storeProduct(store, w.id);
       await markStock(forms);
       for (const item of forms.filter(keep)) {
         const hit = found.get(item.key) ?? classify(item) ?? forceClassify(item);
@@ -208,15 +232,19 @@ function forceClassify(item) {
   return name ? { ...item, cat: name, specs: parseSpecs(item.name), off: offPct(item) } : null;
 }
 
-// config.watchlist 的每一項可以是網址，或 { store: 'bb'|'wm', id, maxPrice }
+// config.watchlist 的每一項可以是網址，或 { store: 'bb'|'wm'|'wt'|'tm', id, maxPrice }
 function parseWatch(entry) {
   const w = typeof entry === 'string' ? { url: entry } : { ...entry };
   if (w.store && w.id) return { ...w, id: String(w.id) };
   const url = w.url ?? '';
   const wm = /walmart\.com\/ip\/(?:[^/?#]+\/)?(\d+)/.exec(url);
   const bb = /bestbuy\.com\/.*?(?:\/sku\/|skuId=|\/)(\d{7,8})(?:\.p)?(?=[/?#]|$)/.exec(url);
+  const wt = /woot\.com\/offers\/([a-z0-9-]+)/i.exec(url);
+  const tm = /temu\.com\/.*?-g-(\d+)\.html|temu\.com\/.*?[?&]goods_id=(\d+)/i.exec(url);
   if (wm) return { ...w, store: 'wm', id: wm[1] };
   if (bb) return { ...w, store: 'bb', id: bb[1] };
+  if (wt) return { ...w, store: 'wt', id: wt[1].toLowerCase() };
+  if (tm) return { ...w, store: 'tm', id: tm[1] ?? tm[2] };
   console.error(c.red(`指定商品看不出是哪家店的哪個商品，已略過: ${url}（Best Buy 請用含 /sku/數字 的網址，或寫成 { store: 'bb', id: 'SKU' }）`));
   return null;
 }
@@ -420,6 +448,8 @@ async function cmdQuery(query) {
   const jobs = [];
   if (stores.includes('bb')) for (const condition of [null, 'Open-Box', 'Refurbished']) jobs.push(bestbuy.search({ query, condition, size: 48, zip: config.zip }));
   if (stores.includes('wm')) jobs.push(walmart.search({ query, sort: '' }));
+  if (stores.includes('wt')) jobs.push(woot.search({ query }));
+  if (stores.includes('tm')) jobs.push(temu.search({ query }));
   const t0 = Date.now();
   const settled = await Promise.allSettled(jobs);
   const seen = new Set();
