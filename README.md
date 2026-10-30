@@ -3,7 +3,7 @@
 監控 Best Buy（open-box / refurbished）與 Walmart（最新上架）的筆電、整機、高階 CPU、顯卡、記憶體，
 有上新或降價就提醒，並用你自己已登入的瀏覽器一鍵加入購物車、跳到結帳頁。
 
-零依賴，只需要 Node.js 20 以上。
+零 npm 依賴。完整功能使用 Node.js 22 以上；Node.js 20 可執行直接 HTTP 診斷與 `WALMART_VIA=http` 模式，瀏覽器功能需要內建 WebSocket。
 
 ## 快速開始
 
@@ -30,11 +30,14 @@ node dealwatch.mjs ui
 `watch` 和 `ui` 擇一執行即可，不要同時開。
 
 要放到 Synology NAS 上 24 小時跑、從別台電腦看，見 [synology/README.md](synology/README.md)。
+部署前可以先跑 `npm test` 和 `node dealwatch.mjs doctor`，確認這台機器連得到兩家店、解析得出商品，
+見 [部署前診斷](docs/preflight.md)；程式結構與設計取捨見 [設計說明](docs/design.md)。
 
 ## 指令
 
 | 指令 | 作用 |
 | --- | --- |
+| `doctor` | 每站唯讀查詢一頁並解析；`--offline` 只查執行環境，`--json` 輸出報告。詳見部署前診斷 |
 | `scan` | 掃一次，列出所有符合條件的商品 |
 | `watch` | 持續監控；輸入提醒編號開購物車，`l` 列出目前全部，`q` 離開 |
 | `ui` | 持續監控 + 本機網頁介面 |
@@ -57,7 +60,7 @@ node dealwatch.mjs ui
   筆電（RTX 4050 以上）、整機（RTX 4060 以上）、CPU（9800X3D 等清單）、顯卡（RTX 5070 Ti 以上）、
   記憶體（DDR5、單條 16GB 以上）。
 - `intervalSec`：watch 的輪詢間隔。
-- `watchlist`：指定商品。不靠搜尋結果，每輪直接查這幾件的價格和庫存，缺貨後補貨、沒排進搜尋前幾頁的也抓得到。
+- `watchlist`：指定商品，不依賴搜尋排名，每輪直接查價格。Walmart 同時讀取商品頁的庫存欄位；Best Buy 自營的全新 / 整新品會查庫存，open-box 與第三方賣家的庫存見「已知限制」。
   每一項填商品網址，或 `{ store: 'bb', id: 'SKU' }`；加 `maxPrice` 的話到那個價一定通知。
 - `steals`：撿漏標準，決定哪些會標 ★ 和推播。參考價（MSRP）另外放在 [msrp.mjs](msrp.mjs)。
 - `cart.auto`：`--auto-cart` 時哪些撿漏要自動開購物車，預設全部。
@@ -85,6 +88,18 @@ node dealwatch.mjs notify-test
 免費方案每月只能推 200 則，所以腳本把同一輪的提醒併成一則，用 `lineDailyMax`（預設一天 6 則）控制用量，
 而且預設只推「撿漏」（見下一節）。上新 / 降價在終端機和 `data/alerts.jsonl` 仍然都有；
 想全部都推就把 `notify.onlySteals` 改成 `false`。
+
+## 其他推播管道
+
+可以和 LINE 並用，填了哪個就推哪個，一樣用 `node dealwatch.mjs notify-test`（或網頁介面的「測試推播」）測試。
+
+- **Discord**：在自己的伺服器開一個頻道 → 編輯頻道 → 整合 → Webhook → 新 Webhook → 複製網址，
+  填到 `.env` 的 `DISCORD_WEBHOOK=`。沒有則數上限，適合想連上新 / 降價都收的人。
+- **Telegram**：跟 [@BotFather](https://t.me/BotFather) 說 `/newbot` 拿到 token，填 `TELEGRAM_BOT_TOKEN=`；
+  先傳一句話給你的 bot，再開 `https://api.telegram.org/bot<token>/getUpdates`，把 `chat.id` 填到 `TELEGRAM_CHAT_ID=`。
+- **ntfy**：裝 ntfy App 訂閱一個別人猜不到的主題名稱，填 `NTFY_TOPIC=`。
+
+這幾個都是單向推播：dealwatch 送提醒給你，不會讀你在聊天室打的字。
 
 ## 撿漏標準
 
@@ -126,6 +141,7 @@ MSRP 表裡沒有的型號會退回用市價：Best Buy 全新品目錄的最低
 - **Walmart**：抓搜尋頁（`sort=new` 最新上架）內嵌的 JSON。先直接請求；被擋就自動改開一個獨立的 Chrome 視窗
   （設定檔在 `data/chrome-profile`，跟你平常的 Chrome 分開）一頁一頁載入，11 個查詢約 35 秒。
   被擋過會記 6 小時，這段時間直接走瀏覽器。那個視窗可以縮小，但監控期間不要關。
+  每輪載入完、閒置 30 秒後分頁會換成空白頁，免得網站的腳本在兩輪之間一直吃 CPU；遇到人機驗證時則保留頁面等你處理。
 - **購物車**：Best Buy 用 `api.bestbuy.com/click/-/<sku>/cart`（open-box 加 `seller_id=BBY_OB&listing_id=<成色>`），
   加完再開結帳頁。Walmart 用 `affil.walmart.com/cart/buynow?offers=<offerId>`，鎖定你在表格看到的那個賣家，
   加完直接往結帳走（沒登入時會停在購物車頁）。

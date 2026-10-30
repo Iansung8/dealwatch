@@ -10,13 +10,15 @@ services:
     env_file: .env
     environment:
       - TZ=${TZ:-America/Chicago}
+      - UI_PASSWORD=${UI_PASSWORD:?Set UI_PASSWORD in .env before starting}
       - UI_HOST=0.0.0.0
       - UI_PORT=8787
       - WALMART_VIA=http
     volumes:
-      - ./:/app
+      - ./:/app:ro
+      - ./data:/app/data
     ports:
-      - "${HOST_UI_PORT:-8787}:8787"
+      - "${HOST_BIND_IP:-127.0.0.1}:${HOST_UI_PORT:-8787}:8787"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8787/healthz"]
       interval: 1m

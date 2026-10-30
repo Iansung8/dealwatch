@@ -24,7 +24,31 @@ const HEADERS = {
 };
 
 // 被站台擋下（驗證頁 / 403 / 429）。呼叫端應退避，不要硬闖。
-export class Blocked extends Error {}
+export class RequestError extends Error {
+  constructor(message, code, { status, cause } = {}) {
+    super(message, { cause });
+    this.name = 'RequestError';
+    this.code = code;
+    this.status = status;
+  }
+}
+
+export class Blocked extends RequestError {
+  constructor(message, status) { super(message, 'blocked', { status }); this.name = 'Blocked'; }
+}
+
+export function requireSuccess(store, { status }) {
+  if ([403, 412, 429].includes(status)) throw new Blocked(`${store} 拒絕請求 (HTTP ${status})，請退避或手動檢查驗證頁`, status);
+  if (status < 200 || status >= 300) throw new RequestError(`${store} 回應 HTTP ${status}`, 'http', { status });
+}
+
+function connectionCode(err) {
+  const codes = [err.code, err.cause?.code, ...(err.cause?.errors ?? []).map(e => e.code)];
+  if (err.name === 'TimeoutError' || codes.some(c => /TIMEOUT|TIMEDOUT/.test(c ?? ''))) return 'timeout';
+  if (codes.some(c => /ENOTFOUND|EAI_AGAIN/.test(c ?? ''))) return 'dns';
+  if (codes.some(c => /CERT|TLS|SSL/.test(c ?? ''))) return 'tls';
+  return 'network';
+}
 
 function limiter(max, gapMs) {
   let active = 0, nextSlot = 0;
@@ -46,14 +70,18 @@ const limits = { bb: limiter(10, 0), wm: limiter(2, 1200) };
 
 export function setPace(host, max, gapMs) { limits[host] = limiter(max, gapMs); }
 
-export function get(host, url, { timeout = 12000, retries = 1, headers } = {}) {
+export function get(host, url, { timeout = 12000, retries = 1, headers, fetchImpl = globalThis.fetch } = {}) {
   return limits[host](async () => {
     for (let attempt = 0; ; attempt++) {
       try {
-        const res = await fetch(url, { headers: { ...HEADERS[host], ...headers }, signal: AbortSignal.timeout(timeout) });
+        const res = await fetchImpl(url, { headers: { ...HEADERS[host], ...headers }, signal: AbortSignal.timeout(timeout) });
         return { status: res.status, body: await res.text() };
       } catch (err) {
-        if (attempt >= retries) throw new Error(`${host} ${err.name === 'TimeoutError' ? '逾時' : err.cause?.code || err.message}`);
+        if (attempt >= retries) {
+          const code = connectionCode(err);
+          const labels = { timeout: '請求逾時', dns: 'DNS 解析失敗', tls: 'TLS／憑證驗證失敗', network: '網路連線失敗' };
+          throw new RequestError(`${host} ${labels[code]}`, code, { cause: err });
+        }
       }
     }
   });
