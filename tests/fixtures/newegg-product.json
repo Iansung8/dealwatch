@@ -1,0 +1,23 @@
+{
+  "ItemDetail": {
+    "ItemInfo": {
+      "ItemNumber": "N82E16814137782",
+      "Title": "ASUS TUF Gaming GeForce RTX 5080 16GB GDDR7 OC Edition",
+      "FinalPrice": 1099.99,
+      "UnitCost": 1099.99,
+      "OriginalUnitPrice": 1299.99,
+      "Instock": true,
+      "Active": true,
+      "Description": {
+        "Title": "ASUS TUF Gaming GeForce RTX 5080 16GB GDDR7 OC Edition",
+        "UrlKeywords": "asus-tuf-gaming-geforce-rtx-5080-16gb-gddr7-oc-edition"
+      },
+      "Feature": { "IsRefurbished": false, "IsOpenBoxed": false, "ShipByNewegg": true },
+      "Seller": { "SellerId": "A0000000", "SellerName": "Newegg.com" },
+      "Subcategory": {
+        "SubcategoryDescription": "GPUs / Video Graphics Cards",
+        "RealSubCategoryDescription": "Video Card - Nvidia"
+      }
+    }
+  }
+}

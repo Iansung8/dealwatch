@@ -1,0 +1,149 @@
+{
+  "TotalItemCount": 42,
+  "PageInfo": { "PageNo": 1, "PageSize": 36 },
+  "Products": [
+    {
+      "ItemCell": {
+        "Item": "N82E16814137782",
+        "FinalPrice": 1099.99,
+        "UnitCost": 1099.99,
+        "OriginalUnitPrice": 1299.99,
+        "Instock": true,
+        "Active": true,
+        "Description": {
+          "Title": "ASUS TUF Gaming GeForce RTX 5080 16GB GDDR7 OC Edition",
+          "UrlKeywords": "asus-tuf-gaming-geforce-rtx-5080-16gb-gddr7-oc-edition"
+        },
+        "Feature": { "IsRefurbished": false, "IsOpenBoxed": false, "ShipByNewegg": true },
+        "Seller": { "SellerId": "A0000000", "SellerName": "Newegg" },
+        "Subcategory": {
+          "SubcategoryDescription": "GPUs / Video Graphics Cards",
+          "RealSubCategoryDescription": "Video Card - Nvidia"
+        }
+      }
+    },
+    {
+      "ItemCell": {
+        "Item": "9SIA2W0M3W9692",
+        "FinalPrice": 899.99,
+        "UnitCost": 999.99,
+        "Instock": true,
+        "Active": true,
+        "Description": {
+          "Title": "MSI GeForce RTX 5080 16G VENTUS 3X OC Graphics Card",
+          "UrlKeywords": "msi-geforce-rtx-5080-16g-ventus-3x-oc"
+        },
+        "Feature": { "IsRefurbished": false, "IsOpenBoxed": false, "ShipByNewegg": false },
+        "Seller": { "SellerId": "A3J5A8", "SellerName": "EPOWERHOUSE" },
+        "Subcategory": {
+          "SubcategoryDescription": "GPUs / Video Graphics Cards",
+          "RealSubCategoryDescription": "Video Card - Nvidia"
+        }
+      }
+    },
+    {
+      "ItemCell": {
+        "Item": "N82E16834236436",
+        "FinalPrice": 1899.99,
+        "UnitCost": 1899.99,
+        "Instock": true,
+        "Active": true,
+        "Description": {
+          "Title": "ASUS ROG Zephyrus G16 Gaming Laptop RTX 5080 32GB 1TB",
+          "UrlKeywords": "asus-rog-zephyrus-g16-gaming-laptop-rtx-5080"
+        },
+        "Feature": { "IsOpenBoxed": true, "IsRefurbished": false, "ShipByNewegg": true },
+        "Seller": null,
+        "Subcategory": {
+          "SubcategoryDescription": "Laptops / Notebooks",
+          "RealSubCategoryDescription": "Gaming Laptops"
+        }
+      }
+    },
+    {
+      "ItemCell": {
+        "Item": "N82E16819113877",
+        "FinalPrice": 279.99,
+        "UnitCost": 279.99,
+        "Instock": true,
+        "Active": true,
+        "Description": {
+          "Title": "AMD Ryzen 7 9800X3D Gaming Processor",
+          "UrlKeywords": "amd-ryzen-7-9800x3d-gaming-processor"
+        },
+        "Feature": { "IsRefurbished": true, "IsOpenBoxed": false, "ShipByNewegg": false },
+        "Seller": { "SellerId": "A1B2C3", "SellerName": "Tech Depot" },
+        "Subcategory": {
+          "SubcategoryDescription": "CPUs / Processors",
+          "RealSubCategoryDescription": "Desktop CPU"
+        }
+      }
+    },
+    {
+      "ItemCell": {
+        "Item": "N82E16883289001",
+        "FinalPrice": 1599.99,
+        "UnitCost": 1599.99,
+        "Instock": true,
+        "Active": true,
+        "Description": {
+          "Title": "CyberPowerPC Gamer Supreme Gaming Desktop PC (Ryzen 7 9800X3D/32GB DDR5/RTX 5080)"
+        },
+        "Feature": { "IsRefurbished": false, "IsOpenBoxed": false, "ShipByNewegg": true },
+        "Seller": null,
+        "Subcategory": {
+          "SubcategoryDescription": "Desktop Computers",
+          "RealSubCategoryDescription": "Gaming Desktops"
+        }
+      }
+    },
+    {
+      "ItemCell": {
+        "Item": "N82E16820242892",
+        "FinalPrice": 89.99,
+        "UnitCost": 89.99,
+        "Instock": false,
+        "Active": true,
+        "Description": {
+          "Title": "CORSAIR Vengeance RGB 32GB (2 x 16GB) DDR5 6000 Desktop Memory",
+          "UrlKeywords": "corsair-vengeance-rgb-32gb-2-x-16gb-ddr5-6000-desktop-memory"
+        },
+        "Feature": { "IsRefurbished": false, "IsOpenBoxed": false, "ShipByNewegg": true },
+        "Seller": { "SellerId": "A0000000", "SellerName": "Newegg.com" },
+        "Subcategory": {
+          "SubcategoryDescription": "Memory",
+          "RealSubCategoryDescription": "Desktop Memory"
+        }
+      }
+    },
+    {
+      "ItemCell": {
+        "Item": "9SIA0000AA0001",
+        "FinalPrice": 59.99,
+        "Description": { "Title": "Combo: 750W Power Supply + Mid Tower Case" },
+        "Feature": { "IsCombo": true }
+      }
+    },
+    {
+      "ItemCell": {
+        "Item": "N82E16814100001",
+        "FinalPrice": 799.99,
+        "UnitCost": 799.99,
+        "Instock": true,
+        "Active": false,
+        "Description": {
+          "Title": "GIGABYTE GeForce RTX 5070 Ti WINDFORCE OC 16G Graphics Card",
+          "UrlKeywords": "gigabyte-geforce-rtx-5070-ti-windforce-oc-16g"
+        },
+        "Feature": { "IsRefurbished": false, "IsOpenBoxed": false, "ShipByNewegg": true },
+        "Seller": null,
+        "Subcategory": {
+          "SubcategoryDescription": "GPUs / Video Graphics Cards",
+          "RealSubCategoryDescription": "Video Card - Nvidia"
+        }
+      }
+    },
+    { "ItemCell": null },
+    { "ItemCell": { "Description": { "Title": "沒有商品編號的廣告" } } }
+  ]
+}
