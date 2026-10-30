@@ -57,7 +57,7 @@ for (const method of ['log', 'error']) {
 
 const HELP = `用法: node dealwatch.mjs <指令> [選項]
 
-  doctor              部署前唯讀診斷（--offline / --store bb|wm|wt / --json）
+  doctor              部署前唯讀診斷（--offline / --store bb|wm|wt|ne / --json）
   scan                掃一次各家店（config.stores），列出所有符合條件的商品（預設指令）
   watch               持續監控，有上新 / 降價就提醒；輸入提醒編號可直接開購物車
   ui                  持續監控 + 開一個本機網頁看結果、篩選、一鍵加入購物車
@@ -112,6 +112,8 @@ setPace('wm', 2, config.walmart.gapMs);
 // Walmart 直接請求被擋時改用獨立的瀏覽器視窗；被擋過就記 6 小時，這段時間直接走瀏覽器不再白試
 const wmBrowser = new Browser({ path: config.walmart.browserPath, profileDir: path.join(ROOT, 'data', 'chrome-profile'), cdpUrl });
 walmart.configure({ via: walmartVia, browser: wmBrowser, startInBrowser: (state.readJson('walmart-mode.json')?.browserUntil ?? 0) > Date.now() });
+// Newegg 被 Cloudflare 擋時也改用同一個瀏覽器；WALMART_VIA=http（沒有瀏覽器的部署）就只走直接請求
+newegg.configure({ browser: walmartVia === 'http' ? null : wmBrowser });
 function saveWalmartHint() {
   if (walmartVia === 'auto' && walmart.usingBrowser()) state.writeJson('walmart-mode.json', { browserUntil: Date.now() + 6 * 36e5 });
 }
@@ -536,7 +538,7 @@ async function cmdWatch({ ui = false } = {}) {
       status[store] = { ...status[store], scanning: true, paused: false };
       const r = await scanStore(store);
       watchStatus[store] = r.watch;
-      const summaryOf = { t: Date.now(), ms: r.ms, requests: r.requests, raw: r.raw, scanning: false, viaBrowser: store === 'wm' && walmart.usingBrowser() };
+      const summaryOf = { t: Date.now(), ms: r.ms, requests: r.requests, raw: r.raw, scanning: false, viaBrowser: (store === 'wm' && walmart.usingBrowser()) || (store === 'ne' && newegg.usingBrowser()) };
       if (failed(r)) {
         if (backoff === 1) await push(config.notify, [], `⚠️ ${STORES[store]} 查詢失敗（${r.errors[0]}），已自動拉長間隔重試`);
         backoff = Math.min(backoff * 2, 16);

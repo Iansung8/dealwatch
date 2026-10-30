@@ -22,9 +22,18 @@ export function searchUrl(query) {
 export const productUrl = id => `${BASE}/p/${encodeURIComponent(String(id ?? '').trim())}`;
 
 // 加入購物車只對 Newegg 自營有效；第三方商品要帶 SellerId，這裡不猜，改開商品頁。
-const cartUrl = (id, seller) => seller === 'Newegg'
-  ? `https://secure.newegg.com/Shopping/AddtoCart.aspx?Submit=ADD&ItemList=${encodeURIComponent(id)}`
-  : null;
+// 搜尋結果的編號是 20-982-099 這種短格式，加入購物車要用完整的 N82E16820982099（已在瀏覽器實測可加入）。
+// 其他格式（例如 1FT-000M-00474）沒驗證過，不給連結，改開商品頁。
+export function cartItemNumber(id) {
+  const s = String(id ?? '').trim().toUpperCase();
+  if (/^N82E\d+$/.test(s)) return s;
+  if (/^\d{2}-\d{3}-\d{3}$/.test(s)) return `N82E168${s.replace(/-/g, '')}`;
+  return null;
+}
+const cartUrl = (id, seller) => {
+  const item = seller === 'Newegg' && cartItemNumber(id);
+  return item ? `https://secure.newegg.com/Shopping/AddtoCart.aspx?Submit=ADD&ItemList=${item}` : null;
+};
 
 // 從 HTML 取出 window.__initialState__。頁面裡另一段 JS 也會提到這個名字但不是賦值，所以要求 "="。
 export function initialState(html) {
@@ -101,10 +110,42 @@ function normalizeCell(product) {
   });
 }
 
+// 直接請求常被 Cloudflare 擋（403 + cf-mitigated: challenge）。有給瀏覽器的話就改用 dealwatch 專用 Chrome 載入，
+// 跟 Walmart 共用同一個分頁排隊。被擋過記 6 小時，這段時間直接走瀏覽器不再白試。
+let browser = null;
+let httpBlockedUntil = 0;
+const HTTP_BLOCK_MS = 6 * 36e5;
+
+export function configure({ browser: b = null } = {}) { browser = b; httpBlockedUntil = 0; }
+export const usingBrowser = () => !!browser && Date.now() < httpBlockedUntil;
+
+// 取得頁面並解析 __initialState__
+async function pageState(url, httpOptions) {
+  if (!usingBrowser()) {
+    try {
+      const response = await get('ne', url, httpOptions);
+      requireSuccess('Newegg', response);
+      return initialState(response.body);
+    } catch (err) {
+      if (!(err instanceof Blocked) || !browser) throw err;
+      httpBlockedUntil = Date.now() + HTTP_BLOCK_MS;
+    }
+  }
+  try {
+    const state = initialState(await browser.html(url));
+    browser.hold = false;
+    return state;
+  } catch (err) {
+    if (!(err instanceof Blocked)) throw err;
+    // 瀏覽器裡也跳驗證：留著頁面、帶到最前面等你親手處理
+    browser.keepOpen = browser.hold = true;
+    await browser.focus();
+    throw new Blocked('Newegg 在瀏覽器裡要求人機驗證，請在 dealwatch 專用瀏覽器視窗手動完成');
+  }
+}
+
 export async function search({ query, minPrice, maxPrice } = {}, httpOptions) {
-  const response = await get('ne', searchUrl(query), httpOptions);
-  requireSuccess('Newegg', response);
-  const data = initialState(response.body);
+  const data = await pageState(searchUrl(query), httpOptions);
   const products = Array.isArray(data.Products) ? data.Products : [];
   const items = products.map(normalizeCell).filter(Boolean);
   const total = Number.parseInt(data.TotalItemCount, 10);
@@ -155,9 +196,7 @@ function normalizeDetail(d, fallbackId) {
 export async function product(itemNumber) {
   const id = String(itemNumber ?? '').trim();
   if (!id) return [];
-  const response = await get('ne', productUrl(id));
-  requireSuccess('Newegg', response);
-  const detail = detailOf(initialState(response.body));
+  const detail = detailOf(await pageState(productUrl(id)));
   const item = detail && normalizeDetail(detail, id);
   return item ? [item] : [];
 }

@@ -3,7 +3,7 @@ import test, { beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { search, product, initialState, searchUrl, productUrl } from '../src/newegg.mjs';
+import { search, product, initialState, searchUrl, productUrl, configure, usingBrowser, cartItemNumber } from '../src/newegg.mjs';
 import { Blocked, RequestError, setPace } from '../src/http.mjs';
 import { evaluate } from '../src/specs.mjs';
 import config from '../config.mjs';
@@ -197,4 +197,38 @@ test('product 找不到商品或沒有 ItemDetail 回 []', async () => {
   } finally {
     globalThis.fetch = original;
   }
+});
+
+test('加入購物車要用完整的 N82E 編號；未驗證過的格式不給連結', () => {
+  assert.equal(cartItemNumber('20-982-099'), 'N82E16820982099');
+  assert.equal(cartItemNumber('n82e16814137782'), 'N82E16814137782');
+  assert.equal(cartItemNumber('1FT-000M-00474'), null);
+  assert.equal(cartItemNumber('9SIA2W0M3W9692'), null);
+});
+
+test('直接請求被 Cloudflare 擋就改用瀏覽器，之後同一段時間直接走瀏覽器', async () => {
+  let httpCalls = 0, browserCalls = 0;
+  const fetchImpl = async () => { httpCalls++; return new Response('<title>Just a moment...</title>', { status: 403 }); };
+  const browser = { html: async () => { browserCalls++; return searchHtml; }, focus: async () => {} };
+  configure({ browser });
+  try {
+    const first = await search({ query: 'rtx' }, { fetchImpl });
+    assert.ok(first.items.length > 0);
+    assert.equal(usingBrowser(), true);
+    await search({ query: 'rtx' }, { fetchImpl });
+    assert.equal(httpCalls, 1);
+    assert.equal(browserCalls, 2);
+  } finally { configure({}); }
+});
+
+test('瀏覽器裡也跳驗證時保留頁面、帶到最前面並丟 Blocked', async () => {
+  let focused = false;
+  const browser = { html: async () => '<div>Are you a human?</div>', focus: async () => { focused = true; } };
+  configure({ browser });
+  try {
+    const fetchImpl = async () => new Response('blocked', { status: 403 });
+    await assert.rejects(search({ query: 'rtx' }, { fetchImpl }), err => err instanceof Blocked && /瀏覽器/.test(err.message));
+    assert.equal(browser.hold, true);
+    assert.equal(focused, true);
+  } finally { configure({}); }
 });
