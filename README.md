@@ -1,7 +1,7 @@
 # dealwatch
 
-監控 Best Buy（open-box / refurbished）、Walmart（最新上架）、Woot（限時特賣）與 Temu（選用，需要登入）的
-筆電、整機、高階 CPU、顯卡、記憶體，有上新或降價就提醒，並用你自己已登入的瀏覽器一鍵加入購物車、跳到結帳頁。
+監控 Best Buy（open-box / refurbished）、Walmart（最新上架）、Woot（限時特賣）、Newegg，
+以及 Slickdeals 和 Reddit r/buildapcsales 上網友回報的 deal，範圍是筆電、整機、高階 CPU、顯卡、記憶體，有上新或降價就提醒，並用你自己已登入的瀏覽器一鍵加入購物車、跳到結帳頁。
 
 零 npm 依賴。完整功能使用 Node.js 22 以上；Node.js 20 可執行直接 HTTP 診斷與 `WALMART_VIA=http` 模式，瀏覽器功能需要內建 WebSocket。
 
@@ -11,7 +11,7 @@
 node dealwatch.mjs scan
 ```
 
-掃一次 `config.stores` 裡的每一家店並列表（預設 Best Buy、Walmart、Woot）。第一次執行只會建立基準；之後每次執行會在表格下方列出「上新」與「降價」。
+掃一次 `config.stores` 裡的每一家店並列表（預設全部六個來源）。第一次執行只會建立基準；之後每次執行會在表格下方列出「上新」與「降價」。
 
 ```bash
 node dealwatch.mjs watch
@@ -41,28 +41,28 @@ node dealwatch.mjs ui
 | `scan` | 掃一次，列出所有符合條件的商品 |
 | `watch` | 持續監控；輸入提醒編號開購物車，`l` 列出目前全部，`q` 離開 |
 | `ui` | 持續監控 + 本機網頁介面 |
-| `browser` | 打開 dealwatch 專用的瀏覽器視窗（Walmart 人機驗證、登入 Walmart / Temu 用） |
+| `browser` | 打開 dealwatch 專用的瀏覽器視窗（Walmart 人機驗證、登入 Walmart 用） |
 | `q <關鍵字>` | 立刻用任意關鍵字查各家店，不套分類過濾（Best Buy 約 1 秒） |
 | `cart <編號>` | 把上一次 `scan` / `q` 表格的第 N 筆加入購物車並開結帳頁 |
 | `cart bb <sku> [excellent\|good\|fair]` | 直接用 Best Buy SKU；加成色就是 open-box |
 | `cart wm <itemId>` | 直接用 Walmart item id |
 | `urls` / `ingest <檔案.html>` | Walmart 擋掉腳本時的替代路徑，見下方 |
 
-常用選項：`--store bb,wt`（bb Best Buy、wm Walmart、wt Woot、tm Temu，可用逗號列多家）、`--cat laptop,gpu`、`--steals`、`--min-off 15`、`--top 30`、`--json`、
+常用選項：`--store bb,wt`（bb Best Buy、wm Walmart、wt Woot、ne Newegg、sd Slickdeals、rd r/buildapcsales，可用逗號列多家）、`--cat laptop,gpu`、`--steals`、`--min-off 15`、`--top 30`、`--json`、
 `--auto-cart`（watch 時撿漏自動開購物車）、`--dry`（cart 只印連結）。
 
 ## 設定
 
 全部在 [config.mjs](config.mjs)：
 
-- `stores`：要監控哪些店，預設 `['bb', 'wm', 'wt']`。Temu 見下方「Temu」一節。
+- `stores`：要監控哪些來源，預設 `['bb', 'wm', 'wt', 'ne', 'sd', 'rd']`。
 - `zip`：填你的郵遞區號。Best Buy 的 open-box 多半只能門市取貨，填了才會以你附近的庫存為準。
-- `categories`：每個分類的搜尋關鍵字（`queries.bestbuy` / `walmart` / `woot` / `temu`，各家店分開設）與過濾條件。預設是
+- `categories`：每個分類的搜尋關鍵字（`queries.bestbuy` / `walmart` / `woot` / `newegg` / `slickdeals` / `reddit`，各來源分開設）與過濾條件。預設是
   筆電（RTX 4050 以上）、整機（RTX 4060 以上）、CPU（9800X3D 等清單）、顯卡（RTX 5070 Ti 以上）、
   記憶體（DDR5、單條 16GB 以上）。
 - `intervalSec`：watch 的輪詢間隔。
 - `watchlist`：指定商品，不依賴搜尋排名，每輪直接查價格。Walmart 同時讀取商品頁的庫存欄位；Best Buy 自營的全新 / 整新品會查庫存，open-box 與第三方賣家的庫存見「已知限制」。
-  每一項填商品網址（Best Buy、Walmart、Woot 的 `/offers/...`、Temu 的 `...-g-<數字>.html` 都可以），或 `{ store: 'bb', id: 'SKU' }`；
+  每一項填商品網址（Best Buy、Walmart、Woot 的 `/offers/...`、Newegg 的 `.../p/<編號>` 都可以），或 `{ store: 'bb', id: 'SKU' }`；
   加 `maxPrice` 的話到那個價一定通知。
 - `steals`：撿漏標準，決定哪些會標 ★ 和推播。參考價（MSRP）另外放在 [msrp.mjs](msrp.mjs)。
 - `cart.auto`：`--auto-cart` 時哪些撿漏要自動開購物車，預設全部。
@@ -146,7 +146,10 @@ MSRP 表裡沒有的型號會退回用市價：Best Buy 全新品目錄的最低
   每輪載入完、閒置 30 秒後分頁會換成空白頁，免得網站的腳本在兩輪之間一直吃 CPU；遇到人機驗證時則保留頁面等你處理。
 - **Woot**：呼叫官網前端用的 GraphQL 端點，依上架時間由新到舊查關鍵字。端點需要的公開金鑰每次從 Woot 首頁讀取，不寫在程式裡。
   Woot 每件商品是限時特賣，多半整新品，賣完就下架。
-- **Temu**：沒有能直接呼叫的公開端點，搜尋又要登入，所以用上面那個專用瀏覽器載入搜尋頁、讀畫面上的商品卡，跟 Walmart 共用同一個分頁排隊。
+- **Newegg**：抓搜尋頁內嵌的 JSON，含售價、庫存、賣家、是否 open-box / 整新。
+- **Slickdeals、r/buildapcsales**：讀網友回報 deal 的 RSS。每篇貼文當成一件商品，價格、規格、店名從標題解析，
+  再套同一套撿漏標準；只看 `feeds.maxAgeHours`（預設 48 小時）內的貼文。表格的「賣家」欄是實際賣的那家店，
+  「開商品頁」會開商品網址（Slickdeals 是討論串）。Reddit 不登入時限流很嚴，一輪只發一個請求。
 - **購物車**：Best Buy 用 `api.bestbuy.com/click/-/<sku>/cart`（open-box 加 `seller_id=BBY_OB&listing_id=<成色>`），
   加完再開結帳頁。Walmart 用 `affil.walmart.com/cart/buynow?offers=<offerId>`，鎖定你在表格看到的那個賣家，
   加完直接往結帳走（沒登入時會停在購物車頁）。
@@ -156,11 +159,9 @@ MSRP 表裡沒有的型號會退回用市價：Best Buy 全新品目錄的最低
 ## 已知限制
 
 - 每家店用的都是非官方端點，改版時可能失效。
-- Woot 和 Temu 沒有加入購物車連結，按鈕是「開商品頁」。Woot 結帳要用 Amazon 帳號登入。
-- **Temu 要先登入**：跑 `node dealwatch.mjs browser`，在打開的視窗登入 Temu 帳號，再把 `config.stores` 加上 `'tm'`。
-  沒登入或遇到人機驗證時，那一輪的 Temu 會失敗並把視窗帶到最前面，等你親手處理；腳本不會代你登入或通過驗證。
-  Temu 上的高階顯卡、CPU 很多是假貨或規格寫錯，價格低於估值一半的不會算撿漏（`steals.tooGood`），
-  也可以用 `config.temu.sellers` 只看信任的賣家。
+- Woot 和社群回報的 deal 沒有加入購物車連結，按鈕是「開商品頁」。Woot 結帳要用 Amazon 帳號登入。
+- 社群回報的 deal 是從標題解析的，標題沒寫清楚規格或價格就判斷不了；貼文也可能已經結束，下單前看一下討論串。
+- Temu 試過但放棄了：搜尋要登入，而且自動搜尋兩次就跳人機驗證，上面也幾乎沒有高階顯卡和 CPU。
 - **Walmart 請求太密集會跳人機驗證**，連瀏覽器視窗裡也可能出現。腳本不會代你通過驗證：
   它會把那個視窗帶到最前面，等你親手按完（按住按鈕那種），下一輪就恢復；網頁介面上可以按「立刻重掃」。
   也可以先跑 `node dealwatch.mjs browser` 把視窗開好、順便登入帳號。
