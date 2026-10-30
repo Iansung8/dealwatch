@@ -56,16 +56,16 @@ for (const method of ['log', 'error']) {
 const HELP = `用法: node dealwatch.mjs <指令> [選項]
 
   doctor              部署前唯讀診斷（--offline / --store bb|wm|wt / --json）
-  scan                掃一次兩家店，列出所有符合條件的商品（預設指令）
+  scan                掃一次各家店（config.stores），列出所有符合條件的商品（預設指令）
   watch               持續監控，有上新 / 降價就提醒；輸入提醒編號可直接開購物車
   ui                  持續監控 + 開一個本機網頁看結果、篩選、一鍵加入購物車
-  q <關鍵字>          立刻用任意關鍵字查兩家店（不套分類過濾）
+  q <關鍵字>          立刻用任意關鍵字查各家店（不套分類過濾）
   cart <編號>         把上一次 scan / q 結果的第 N 筆加入購物車並開結帳頁
   cart bb <sku> [excellent|good|fair]    直接用 Best Buy SKU（加成色 = open-box）
   cart wm <itemId>                       直接用 Walmart item id
   notify-test         送一則測試推播，確認 LINE 等管道設定正確
   market              列出撿漏判斷採用的參考價（MSRP / 市價）
-  browser             打開 Walmart 專用的瀏覽器視窗（用來通過人機驗證或登入帳號）
+  browser             打開 dealwatch 專用的瀏覽器視窗（通過 Walmart 人機驗證、登入 Walmart / Temu 帳號）
   urls                列出 Walmart 的搜尋網址（被擋時改用瀏覽器開）
   ingest <檔案.html>  解析瀏覽器另存的 Walmart 搜尋頁，一樣做過濾 / 比對 / 提醒
 
@@ -121,6 +121,7 @@ function keep(item) {
   if (!item.inStock || !(item.price > 0)) return false;
   if (item.store === 'bb' && !config.bestbuy.include3P && item.seller !== 'BestBuy') return false;
   if (item.store === 'wm' && config.walmart.sellers && !config.walmart.sellers.test(item.seller)) return false;
+  if (item.store === 'tm' && config.temu?.sellers && !config.temu.sellers.test(item.seller)) return false;
   return true;
 }
 
@@ -477,7 +478,7 @@ async function cmdCart(args) {
     if (!item) { console.error('找不到這個編號。先跑 scan 或 q，再用表格最左邊的 # 編號。'); process.exit(1); }
   }
   if (!item.cartUrl) {
-    console.log(`這件是第三方賣家的商品，沒有加入購物車連結，改開商品頁: ${item.name}\n${item.url}`);
+    console.log(`這件沒有加入購物車連結（Best Buy 第三方賣家、Woot、Temu），改開商品頁: ${item.name}\n${item.url}`);
     if (!flags.dry) openUrl(item.url, config.cart.browser);
     return;
   }
