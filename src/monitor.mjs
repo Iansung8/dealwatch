@@ -8,7 +8,9 @@ import config from '../config.mjs';
 import * as bestbuy from './bestbuy.mjs';
 import * as walmart from './walmart.mjs';
 import * as woot from './woot.mjs';
-import * as temu from './temu.mjs';
+import * as newegg from './newegg.mjs';
+import * as slickdeals from './slickdeals.mjs';
+import * as reddit from './reddit.mjs';
 import { STORES as STORE_META } from './stores.mjs';
 import { Blocked, setPace } from './http.mjs';
 import { evaluate, parseSpecs } from './specs.mjs';
@@ -38,7 +40,7 @@ const cdpUrl = process.env.DEALWATCH_CDP_URL || config.walmart.cdpUrl || '';
 const walmartVia = process.env.WALMART_VIA || config.walmart.via;
 // 有設 ZIP_CODE 就蓋過 config.zip；設成空字串代表不限定取貨地點
 if (process.env.ZIP_CODE !== undefined) config.zip = process.env.ZIP_CODE.trim();
-for (const [store, key] of [['bb', 'BESTBUY_INTERVAL_SEC'], ['wm', 'WALMART_INTERVAL_SEC'], ['wt', 'WOOT_INTERVAL_SEC'], ['tm', 'TEMU_INTERVAL_SEC']]) {
+for (const [store, key] of [['bb', 'BESTBUY_INTERVAL_SEC'], ['wm', 'WALMART_INTERVAL_SEC'], ['wt', 'WOOT_INTERVAL_SEC'], ['ne', 'NEWEGG_INTERVAL_SEC'], ['sd', 'SLICKDEALS_INTERVAL_SEC'], ['rd', 'REDDIT_INTERVAL_SEC']]) {
   if (+process.env[key] > 0) config.intervalSec[store] = +process.env[key];
 }
 
@@ -65,12 +67,12 @@ const HELP = `用法: node dealwatch.mjs <指令> [選項]
   cart wm <itemId>                       直接用 Walmart item id
   notify-test         送一則測試推播，確認 LINE 等管道設定正確
   market              列出撿漏判斷採用的參考價（MSRP / 市價）
-  browser             打開 dealwatch 專用的瀏覽器視窗（通過 Walmart 人機驗證、登入 Walmart / Temu 帳號）
+  browser             打開 dealwatch 專用的瀏覽器視窗（通過 Walmart 人機驗證或登入 Walmart 帳號）
   urls                列出 Walmart 的搜尋網址（被擋時改用瀏覽器開）
   ingest <檔案.html>  解析瀏覽器另存的 Walmart 搜尋頁，一樣做過濾 / 比對 / 提醒
 
 選項:
-  --store bb,wt       只跑指定的店（bb Best Buy、wm Walmart、wt Woot、tm Temu）
+  --store bb,wt       只跑指定的店（bb Best Buy、wm Walmart、wt Woot、ne Newegg、sd Slickdeals、rd r/buildapcsales）
   --cat laptop,gpu    只跑指定分類（${Object.keys(config.categories).join(', ')}）
   --steals            只顯示符合撿漏標準（config.steals）的
   --min-off 15        只顯示折扣 >= 15% 的
@@ -94,7 +96,7 @@ function parseArgs(argv) {
 
 const { cmd, rest, flags } = parseArgs(process.argv.slice(2));
 const state = new State(path.join(ROOT, 'data'));
-// 預設跑 config.stores 列的店；Temu 要先在專用瀏覽器登入，所以預設不開
+// 預設跑 config.stores 列的店
 const stores = (flags.store ? flags.store.split(',') : config.stores ?? ['bb', 'wm']).filter(s => {
   if (STORES[s]) return true;
   console.error(c.red(`不認得的店家代號 ${s}，可用: ${Object.keys(STORES).join(', ')}`));
@@ -110,8 +112,6 @@ setPace('wm', 2, config.walmart.gapMs);
 // Walmart 直接請求被擋時改用獨立的瀏覽器視窗；被擋過就記 6 小時，這段時間直接走瀏覽器不再白試
 const wmBrowser = new Browser({ path: config.walmart.browserPath, profileDir: path.join(ROOT, 'data', 'chrome-profile'), cdpUrl });
 walmart.configure({ via: walmartVia, browser: wmBrowser, startInBrowser: (state.readJson('walmart-mode.json')?.browserUntil ?? 0) > Date.now() });
-// Temu 只能靠瀏覽器（要登入），跟 Walmart 共用同一個分頁，載入會排隊
-temu.configure({ browser: wmBrowser });
 function saveWalmartHint() {
   if (walmartVia === 'auto' && walmart.usingBrowser()) state.writeJson('walmart-mode.json', { browserUntil: Date.now() + 6 * 36e5 });
 }
@@ -121,7 +121,6 @@ function keep(item) {
   if (!item.inStock || !(item.price > 0)) return false;
   if (item.store === 'bb' && !config.bestbuy.include3P && item.seller !== 'BestBuy') return false;
   if (item.store === 'wm' && config.walmart.sellers && !config.walmart.sellers.test(item.seller)) return false;
-  if (item.store === 'tm' && config.temu?.sellers && !config.temu.sellers.test(item.seller)) return false;
   return true;
 }
 
@@ -155,13 +154,17 @@ function storeSearch(store, query, cat) {
   const opts = { query, minPrice: cat.minPrice, maxPrice: cat.maxPrice };
   if (store === 'wm') return walmartPages(query, cat);
   if (store === 'wt') return woot.search({ ...opts, limit: config.woot?.limit }).then(r => r.items);
-  if (store === 'tm') return temu.search(opts).then(r => r.items);
+  if (store === 'ne') return newegg.search(opts).then(r => r.items);
+  if (store === 'sd') return slickdeals.search(opts).then(r => r.items);
+  if (store === 'rd') return reddit.search(opts).then(r => r.items);
   throw new Error(`沒有 ${store} 的搜尋方式`);
 }
 
 // 指定商品的單品查詢
 function storeProduct(store, id) {
-  return { bb: bestbuy.product, wm: walmart.product, wt: woot.product, tm: temu.product }[store](id);
+  const fn = { bb: bestbuy.product, wm: walmart.product, wt: woot.product, ne: newegg.product }[store];
+  if (!fn) throw new Error(`${STORES[store]} 不支援指定商品`);
+  return fn(id);
 }
 
 async function walmartPages(query, cat) {
@@ -233,7 +236,7 @@ function forceClassify(item) {
   return name ? { ...item, cat: name, specs: parseSpecs(item.name), off: offPct(item) } : null;
 }
 
-// config.watchlist 的每一項可以是網址，或 { store: 'bb'|'wm'|'wt'|'tm', id, maxPrice }
+// config.watchlist 的每一項可以是網址，或 { store: 'bb'|'wm'|'wt'|'ne', id, maxPrice }
 function parseWatch(entry) {
   const w = typeof entry === 'string' ? { url: entry } : { ...entry };
   if (w.store && w.id) return { ...w, id: String(w.id) };
@@ -241,11 +244,11 @@ function parseWatch(entry) {
   const wm = /walmart\.com\/ip\/(?:[^/?#]+\/)?(\d+)/.exec(url);
   const bb = /bestbuy\.com\/.*?(?:\/sku\/|skuId=|\/)(\d{7,8})(?:\.p)?(?=[/?#]|$)/.exec(url);
   const wt = /woot\.com\/offers\/([a-z0-9-]+)/i.exec(url);
-  const tm = /temu\.com\/.*?-g-(\d+)\.html|temu\.com\/.*?[?&]goods_id=(\d+)/i.exec(url);
+  const ne = /newegg\.com\/(?:.*\/)?p\/([A-Za-z0-9-]+)/i.exec(url);
   if (wm) return { ...w, store: 'wm', id: wm[1] };
   if (bb) return { ...w, store: 'bb', id: bb[1] };
   if (wt) return { ...w, store: 'wt', id: wt[1].toLowerCase() };
-  if (tm) return { ...w, store: 'tm', id: tm[1] ?? tm[2] };
+  if (ne) return { ...w, store: 'ne', id: ne[1].toUpperCase() };
   console.error(c.red(`指定商品看不出是哪家店的哪個商品，已略過: ${url}（Best Buy 請用含 /sku/數字 的網址，或寫成 { store: 'bb', id: 'SKU' }）`));
   return null;
 }
@@ -450,7 +453,9 @@ async function cmdQuery(query) {
   if (stores.includes('bb')) for (const condition of [null, 'Open-Box', 'Refurbished']) jobs.push(bestbuy.search({ query, condition, size: 48, zip: config.zip }));
   if (stores.includes('wm')) jobs.push(walmart.search({ query, sort: '' }));
   if (stores.includes('wt')) jobs.push(woot.search({ query }));
-  if (stores.includes('tm')) jobs.push(temu.search({ query }));
+  if (stores.includes('ne')) jobs.push(newegg.search({ query }));
+  if (stores.includes('sd')) jobs.push(slickdeals.search({ query }));
+  if (stores.includes('rd')) jobs.push(reddit.search({ query }));
   const t0 = Date.now();
   const settled = await Promise.allSettled(jobs);
   const seen = new Set();
@@ -478,7 +483,7 @@ async function cmdCart(args) {
     if (!item) { console.error('找不到這個編號。先跑 scan 或 q，再用表格最左邊的 # 編號。'); process.exit(1); }
   }
   if (!item.cartUrl) {
-    console.log(`這件沒有加入購物車連結（Best Buy 第三方賣家、Woot、Temu），改開商品頁: ${item.name}\n${item.url}`);
+    console.log(`這件沒有加入購物車連結（Best Buy 第三方賣家、Woot、Newegg 第三方、社群回報的 deal），改開商品頁: ${item.name}\n${item.url}`);
     if (!flags.dry) openUrl(item.url, config.cart.browser);
     return;
   }

@@ -39,7 +39,7 @@ function observe(item) {
   return '';
 }
 
-const TRUSTED = /^(BestBuy|Walmart\.com)$/;
+const TRUSTED = /^(BestBuy|Walmart\.com|Newegg)$/;
 
 // 取最低價，但丟掉低於中位數一半的離群值（多半是標錯或假貨）。
 // 只有單一第三方賣家在賣的型號不算有「市價」，回傳 undefined。

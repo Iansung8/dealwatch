@@ -23,6 +23,14 @@ const HEADERS = {
     origin: 'https://www.woot.com',
     referer: 'https://www.woot.com/',
   },
+  ne: {
+    'user-agent': UA,
+    accept: 'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8',
+    'accept-language': 'en-US,en;q=0.9',
+  },
+  // RSS 來源：Reddit 要求有辨識度的 User-Agent，用一般瀏覽器 UA 也可以
+  sd: { 'user-agent': UA, accept: 'application/rss+xml, application/xml;q=0.9, */*;q=0.8' },
+  rd: { 'user-agent': UA, accept: 'application/atom+xml, application/xml;q=0.9, */*;q=0.8' },
   // Walmart 用最精簡的標頭即可；多送 sec-* 反而會被導到驗證頁
   wm: {
     'user-agent': UA,
@@ -74,7 +82,7 @@ function limiter(max, gapMs) {
 }
 
 // Walmart 對密集請求很敏感，預設就放慢；間隔可由 config.walmart.gapMs 調整
-const limits = { bb: limiter(10, 0), wm: limiter(2, 1200), wt: limiter(4, 250) };
+const limits = { bb: limiter(10, 0), wm: limiter(2, 1200), wt: limiter(4, 250), ne: limiter(2, 1500), sd: limiter(2, 1000), rd: limiter(1, 2000) };
 
 export function setPace(host, max, gapMs) { limits[host] = limiter(max, gapMs); }
 

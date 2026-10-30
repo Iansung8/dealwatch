@@ -4,7 +4,10 @@ export const STORES = {
   bb: { name: 'Best Buy', short: 'BB', queries: 'bestbuy' },
   wm: { name: 'Walmart', short: 'WM', queries: 'walmart' },
   wt: { name: 'Woot', short: 'WT', queries: 'woot' },
-  tm: { name: 'Temu', short: 'TM', queries: 'temu' },
+  ne: { name: 'Newegg', short: 'NE', queries: 'newegg' },
+  // 社群回報的 deal：商品實際在別家店賣，表格的「賣家」欄是那家店
+  sd: { name: 'Slickdeals', short: 'SD', queries: 'slickdeals' },
+  rd: { name: 'r/buildapcsales', short: 'RD', queries: 'reddit' },
 };
 
 export const storeName = code => STORES[code]?.name ?? code;

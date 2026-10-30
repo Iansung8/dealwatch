@@ -5,14 +5,15 @@ export default {
   // 你的郵遞區號：Best Buy 的 open-box 多半限門市取貨，填了會以你附近的庫存為準
   zip: '61820',
 
-  // 要監控哪些店：bb Best Buy、wm Walmart、wt Woot、tm Temu。
-  // Temu 要先跑 `node dealwatch.mjs browser` 在那個視窗登入 Temu 帳號才查得到，登入後再把 'tm' 加進來
-  stores: ['bb', 'wm', 'wt'],
+  // 要監控哪些店：bb Best Buy、wm Walmart、wt Woot、ne Newegg，
+  // 以及社群回報的 deal：sd Slickdeals、rd Reddit r/buildapcsales（商品在別家店，表格的「賣家」欄是那家店）
+  stores: ['bb', 'wm', 'wt', 'ne', 'sd', 'rd'],
 
   // watch 模式每家店的輪詢間隔（秒）。太密會被擋，被擋時腳本會自動加倍退避
   // Best Buy 一輪約 3 秒可以跑很密；Walmart 請求一密就會跳人機驗證，建議維持 5 分鐘
-  // Woot 是限時特賣，上架時間多半在美中時間午夜，2 分鐘一輪就夠；Temu 走瀏覽器而且要登入，不要太密
-  intervalSec: { bb: 60, wm: 300, wt: 120, tm: 600 },
+  // Woot 是限時特賣，上架時間多半在美中時間午夜，2 分鐘一輪就夠。
+  // r/buildapcsales 的好 deal 常常幾分鐘內賣光，但 Reddit 限流很嚴（連打兩次就 429），一輪只發一個請求、2 分鐘一輪
+  intervalSec: { bb: 60, wm: 300, wt: 120, ne: 300, sd: 180, rd: 120 },
 
   ui: { port: 8787 }, // `node dealwatch.mjs ui` 的網頁介面埠號
 
@@ -50,9 +51,8 @@ export default {
     limit: 120, // 每個關鍵字最多拿幾件（依上架時間由新到舊）
   },
 
-  temu: {
-    // Temu 上的高階顯卡 / CPU 假貨與標錯規格很多，只看這些賣家就填正規式；null = 不限
-    sellers: null,
+  feeds: {
+    maxAgeHours: 48, // Slickdeals / Reddit 只看這麼多小時內發的文，舊文多半已經結束
   },
 
   // 推播：也可以改用環境變數 LINE_TOKEN (+ LINE_TO) / DISCORD_WEBHOOK / TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID / NTFY_TOPIC
@@ -115,7 +115,8 @@ export default {
   ],
 
   // 每個分類：queries 是丟給兩家店的搜尋關鍵字，其餘是過濾條件
-  //   queries     每家店各自的關鍵字：bestbuy / walmart / woot / temu
+  //   queries     每家店各自的關鍵字：bestbuy / walmart / woot / newegg / slickdeals / reddit
+  //               reddit 一輪只抓一次最新貼文，這裡的字詞（不分大小寫）只要出現在標題就算
   //   type        站台商品類型（沒有類型時比對標題）
   //   include     標題必須符合 / exclude 標題不可符合
   //   minGpu      顯卡至少要這個等級
@@ -128,7 +129,9 @@ export default {
         bestbuy: ['gaming laptop', 'rtx laptop'],
         walmart: ['gaming laptop rtx', 'rtx 5070 ti laptop'],
         woot: ['laptop'], // Woot 商品不多，而且關鍵字的每個字都要出現在標題裡，用寬一點的詞再靠分類條件過濾
-        temu: ['rtx 5070 ti gaming laptop'],
+        newegg: ['gaming laptop rtx 5070 ti', 'gaming laptop rtx 5080'],
+        slickdeals: ['gaming laptop', 'rtx 5070 ti laptop', 'rtx 5080 laptop'],
+        reddit: ['laptop'],
       },
       type: /laptop|notebook/i,
       minGpu: 'RTX 4050',
@@ -140,7 +143,9 @@ export default {
         bestbuy: ['gaming desktop', 'rtx gaming pc'],
         walmart: ['gaming desktop pc rtx', '9800x3d gaming pc'],
         woot: ['desktop', 'gaming pc'],
-        temu: ['rtx 5080 gaming pc'],
+        newegg: ['gaming desktop rtx 5080', '9800x3d gaming pc'],
+        slickdeals: ['gaming pc', 'gaming desktop', '9800x3d'],
+        reddit: ['prebuilt', 'desktop', 'gaming pc'],
       },
       type: /desktop|gaming pc|tower/i,
       exclude: /all-in-one|\bAIO\b|monitor/i,
@@ -153,7 +158,9 @@ export default {
         bestbuy: ['ryzen 9800x3d processor', 'ryzen 9950x3d processor', 'ryzen 7800x3d processor', 'core ultra 9 285k processor'],
         walmart: ['ryzen 9800x3d', 'ryzen 9950x3d'],
         woot: ['ryzen', 'processor', 'core ultra'],
-        temu: ['ryzen 7 9800x3d'],
+        newegg: ['ryzen 7 9800x3d', 'ryzen 9 9950x3d'],
+        slickdeals: ['9800x3d', '9950x3d'],
+        reddit: ['cpu', 'x3d', 'ryzen', 'core ultra'],
       },
       type: /processor|cpu/i,
       show: ['cpu'],
@@ -170,7 +177,9 @@ export default {
         bestbuy: ['rtx 5070 ti', 'rtx 5080', 'rtx 5090', 'rx 9070 xt', 'graphics card'],
         walmart: ['rtx 5070 ti', 'rtx 5080', 'rtx 5090'],
         woot: ['rtx', 'geforce', 'radeon'],
-        temu: ['rtx 5080 graphics card', 'rtx 5090 graphics card'],
+        newegg: ['rtx 5070 ti', 'rtx 5080', 'rtx 5090'],
+        slickdeals: ['rtx 5070 ti', 'rtx 5080', 'rtx 5090'],
+        reddit: ['gpu', 'rtx', 'radeon', 'rx 9070'],
       },
       type: /graphics card|video card|gpu/i,
       show: ['gpu'],
@@ -184,7 +193,9 @@ export default {
         bestbuy: ['ddr5 memory', 'ddr5 32gb', 'ddr5 64gb'],
         walmart: ['ddr5 32gb kit', 'ddr5 64gb kit'],
         woot: ['ddr5', 'memory'],
-        temu: ['ddr5 32gb desktop memory'],
+        newegg: ['ddr5 32gb desktop memory', 'ddr5 64gb desktop memory'],
+        slickdeals: ['ddr5'],
+        reddit: ['ram', 'ddr5', 'memory'],
       },
       type: /memory|ram/i,
       show: ['ram'],

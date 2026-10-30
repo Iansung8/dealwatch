@@ -247,8 +247,8 @@ function render() {
       <span class="spacer"></span>${buyButton(a)}</div>`).join('');
 }
 
-// Best Buy 第三方賣家、Woot、Temu 的商品沒有加入購物車連結，只能開商品頁自己按
-const STORE_NAMES = { bb: ['Best Buy', 'BB'], wm: ['Walmart', 'WM'], wt: ['Woot', 'WT'], tm: ['Temu', 'TM'] };
+// Best Buy 第三方賣家、Woot、社群回報的 deal 沒有加入購物車連結，只能開商品頁自己按
+const STORE_NAMES = { bb: ['Best Buy', 'BB'], wm: ['Walmart', 'WM'], wt: ['Woot', 'WT'], ne: ['Newegg', 'NE'], sd: ['Slickdeals', 'SD'], rd: ['r/buildapcsales', 'RD'] };
 const storeName = code => STORE_NAMES[code]?.[0] ?? code;
 const storeShort = code => STORE_NAMES[code]?.[1] ?? String(code).toUpperCase();
 
