@@ -253,7 +253,10 @@ const PAGE_SNAPSHOT = String.raw`(() => {
       });
     }
   }
-  return { href: location.href, title: document.title, text: ((document.body && document.body.innerText) || '').slice(0, 800), cards: cards };
+  const body = (document.body && document.body.innerText) || '';
+  // 查無結果時頁面會寫「沒有關於「…」的結果」，看到就不用再等商品卡出現
+  const empty = /沒有關於「|没有关于「|No results for/i.test(body);
+  return { href: location.href, title: document.title, text: body.slice(0, 800), cards: cards, empty: empty };
 })()`;
 
 // 商品頁：rawData 裡找 goodsId 相符的物件；找不到就靠 og meta / 主要購買按鈕
@@ -334,7 +337,7 @@ async function load(url, expression, until) {
   return snap;
 }
 
-const ready = v => !!v && (blockKind(v) !== '' || (Array.isArray(v.cards) && v.cards.length > 0));
+const ready = v => !!v && (v.empty || blockKind(v) !== '' || (Array.isArray(v.cards) && v.cards.length > 0));
 const found = v => !!v && (blockKind(v) !== '' || (v.card && (v.card.priceStr || v.card.priceCents != null || v.card.soldOut)));
 
 // minPrice / maxPrice 沒有確認 Temu 的搜尋網址支援哪個參數，這裡不帶；monitor 的分類條件會再過濾一次。
