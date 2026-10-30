@@ -7,11 +7,14 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createDoctorReport, parseDoctorArgs, runtimeChecks } from '../src/doctor.mjs';
 import { resetCache as resetWootCache } from '../src/woot.mjs';
+import { setPace } from '../src/http.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const bb = { data: { search: { numFound: 1, documents: [{ product: { skuId: '1', name: { short: 'Example GPU' }, price: { customerPrice: 500 }, seller: { classification: '1P' } } }] } } };
 const wm = { props: { pageProps: { initialData: { searchResult: { itemStacks: [{ items: [{ __typename: 'Product', usItemId: '2', name: 'Example GPU', price: 500 }] }] } } } } };
 const html = `<script type="application/json" id='__NEXT_DATA__'>${JSON.stringify(wm)}</script>`;
+// 測試不照 Newegg 正式限流間隔排隊
+setPace('ne', 2, 0);
 
 test('doctor 使用實際兩站查詢與標頭，各一次，並解析商品', async () => {
   const calls = [];
@@ -47,6 +50,30 @@ test('doctor --store wt 從官網取 key 後查詢 Woot GraphQL', async () => {
   assert.equal(report.checks.at(-1).name, 'wt');
   assert.equal(report.checks.at(-1).status, 'pass');
   assert.equal(report.checks.at(-1).items, 1);
+});
+
+test('doctor --store ne 解析 Newegg 搜尋頁的 __initialState__', async () => {
+  const calls = [];
+  const state = { TotalItemCount: 1, Products: [{ ItemCell: { Item: 'N82E16814137782', FinalPrice: 1099.99, Instock: true, Active: true,
+    Description: { Title: 'Example GPU' }, Subcategory: { SubcategoryDescription: 'GPUs / Video Graphics Cards' } } }] };
+  const report = await createDoctorReport(parseDoctorArgs(['--store', 'ne']), { fetchImpl: async (url, init) => {
+    calls.push({ url: String(url), init });
+    return new Response(`<script>window.__initialState__ = ${JSON.stringify(state)}</script>`);
+  } });
+  assert.equal(report.exitCode, 0);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].url, /newegg\.com\/p\/pl\?d=rtx\+5080/);
+  assert.match(calls[0].init.headers.accept, /text\/html/);
+  assert.equal(report.checks.at(-1).name, 'ne');
+  assert.equal(report.checks.at(-1).status, 'pass');
+  assert.equal(report.checks.at(-1).items, 1);
+});
+
+test('doctor 把 Newegg 的 Cloudflare 驗證頁判為失敗', async () => {
+  const report = await createDoctorReport(parseDoctorArgs(['--store', 'ne']), { fetchImpl: async () => new Response('<title>Just a moment...</title>') });
+  assert.equal(report.exitCode, 1);
+  assert.equal(report.checks.at(-1).name, 'ne');
+  assert.equal(report.checks.at(-1).code, 'blocked');
 });
 
 test('doctor offline 完全不發送請求；Node 20 的 WebSocket 缺少是警告', async () => {
@@ -91,6 +118,7 @@ test('選配 CDP 只讀版本端點，不連 WebSocket、不回傳網址', async
 });
 
 test('參數驗證拒絕錯誤店家、逾時值、URL 帳密與 offline 連網選項', () => {
+  assert.deepEqual(parseDoctorArgs(['--store', 'ne']).stores, ['ne']);
   for (const args of [['--store'], ['--store', 'bad'], ['--timeout-ms', '0'], ['--timeout-ms', 'NaN'], ['--secret'], ['--cdp-url', 'http://user:secret@localhost:9222'], ['--offline', '--cdp-url', 'http://localhost:9222']]) {
     assert.throws(() => parseDoctorArgs(args));
   }
