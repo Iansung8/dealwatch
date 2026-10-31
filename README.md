@@ -1,6 +1,6 @@
 # dealwatch
 
-監控 Best Buy（open-box / refurbished）、Walmart（最新上架）、Woot（限時特賣）、Newegg，
+監控 Best Buy（open-box / refurbished）、Walmart（最新上架）、Woot（限時特賣）、Newegg、eBay（直購）、Micro Center，
 以及 Slickdeals 和 Reddit r/buildapcsales 上網友回報的 deal，範圍是筆電、整機、高階 CPU、顯卡、記憶體，有上新或降價就提醒，並用你自己已登入的瀏覽器一鍵加入購物車、跳到結帳頁。
 
 零 npm 依賴。完整功能使用 Node.js 22 以上；Node.js 20 可執行直接 HTTP 診斷與 `WALMART_VIA=http` 模式，瀏覽器功能需要內建 WebSocket。
@@ -48,7 +48,7 @@ node dealwatch.mjs ui
 | `cart wm <itemId>` | 直接用 Walmart item id |
 | `urls` / `ingest <檔案.html>` | Walmart 擋掉腳本時的替代路徑，見下方 |
 
-常用選項：`--store bb,wt`（bb Best Buy、wm Walmart、wt Woot、ne Newegg、sd Slickdeals、rd r/buildapcsales，可用逗號列多家）、`--cat laptop,gpu`、`--steals`、`--min-off 15`、`--top 30`、`--json`、
+常用選項：`--store bb,wt`（bb Best Buy、wm Walmart、wt Woot、ne Newegg、eb eBay、mc Micro Center、sd Slickdeals、rd r/buildapcsales，可用逗號列多家）、`--cat laptop,gpu`、`--steals`、`--min-off 15`、`--top 30`、`--json`、
 `--auto-cart`（watch 時撿漏自動開購物車）、`--dry`（cart 只印連結）。
 
 ## 設定
@@ -62,7 +62,7 @@ node dealwatch.mjs ui
   記憶體（DDR5、單條 16GB 以上）。
 - `intervalSec`：watch 的輪詢間隔。
 - `watchlist`：指定商品，不依賴搜尋排名，每輪直接查價格。Walmart 同時讀取商品頁的庫存欄位；Best Buy 自營的全新 / 整新品會查庫存，open-box 與第三方賣家的庫存見「已知限制」。
-  每一項填商品網址（Best Buy、Walmart、Woot 的 `/offers/...`、Newegg 的 `.../p/<編號>` 都可以），或 `{ store: 'bb', id: 'SKU' }`；
+  每一項填商品網址（Best Buy、Walmart、Woot 的 `/offers/...`、Newegg 的 `.../p/<編號>`、eBay 的 `/itm/<編號>`、Micro Center 的 `/product/<編號>/...` 都可以），或 `{ store: 'bb', id: 'SKU' }`；
   加 `maxPrice` 的話到那個價一定通知。
 - `steals`：撿漏標準，決定哪些會標 ★ 和推播。參考價（MSRP）另外放在 [msrp.mjs](msrp.mjs)。
 - `cart.auto`：`--auto-cart` 時哪些撿漏要自動開購物車，預設全部。
@@ -147,6 +147,10 @@ MSRP 表裡沒有的型號會退回用市價：Best Buy 全新品目錄的最低
 - **Woot**：呼叫官網前端用的 GraphQL 端點，依上架時間由新到舊查關鍵字。端點需要的公開金鑰每次從 Woot 首頁讀取，不寫在程式裡。
   Woot 每件商品是限時特賣，多半整新品，賣完就下架。
 - **Newegg**：抓搜尋頁內嵌的 JSON，含售價、庫存、賣家、是否 open-box / 整新。
+- **eBay**：直接請求一律被擋，只能用同一個 Chrome 另開分頁載入搜尋頁（最新上架、只看直購、限定 eBay 分類與美國境內出貨）。
+  價格含運費；只留 `ebay.minFeedbackPct` / `minFeedbackCount` 以上的賣家（預設 98%、20 筆評價），預設不看二手。
+  連續載入太快會回錯誤頁，所以每次載入至少隔 10 秒、10 分鐘一輪。
+- **Micro Center**：同樣只能用瀏覽器載入搜尋頁，價格與庫存以 `microcenter.storeId` 那家門市為準（預設 165 Indianapolis）。
 - **Slickdeals、r/buildapcsales**：讀網友回報 deal 的 RSS。每篇貼文當成一件商品，價格、規格、店名從標題解析，
   再套同一套撿漏標準；只看 `feeds.maxAgeHours`（預設 48 小時）內的貼文。表格的「賣家」欄是實際賣的那家店，
   「開商品頁」會開商品網址（Slickdeals 是討論串）。Reddit 不登入時限流很嚴，一輪只發一個請求。
@@ -159,7 +163,7 @@ MSRP 表裡沒有的型號會退回用市價：Best Buy 全新品目錄的最低
 ## 已知限制
 
 - 每家店用的都是非官方端點，改版時可能失效。
-- Woot 和社群回報的 deal 沒有加入購物車連結，按鈕是「開商品頁」。Woot 結帳要用 Amazon 帳號登入。
+- Woot、eBay、Micro Center 和社群回報的 deal 沒有加入購物車連結，按鈕是「開商品頁」。Woot 結帳要用 Amazon 帳號登入。
 - 社群回報的 deal 是從標題解析的，標題沒寫清楚規格或價格就判斷不了；貼文也可能已經結束，下單前看一下討論串。
 - Temu 試過但放棄了：搜尋要登入，而且自動搜尋兩次就跳人機驗證，上面也幾乎沒有高階顯卡和 CPU。
 - **Walmart 請求太密集會跳人機驗證**，連瀏覽器視窗裡也可能出現。腳本不會代你通過驗證：
