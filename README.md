@@ -149,6 +149,7 @@ MSRP 表裡沒有的型號會退回用市價：Best Buy 全新品目錄的最低
 - **Newegg**：抓搜尋頁內嵌的 JSON，含售價、庫存、賣家、是否 open-box / 整新。
 - **eBay**：直接請求一律被擋，只能用同一個 Chrome 另開分頁載入搜尋頁（最新上架、只看直購、限定 eBay 分類與美國境內出貨）。
   價格含運費；只留 `ebay.minFeedbackPct` / `minFeedbackCount` 以上的賣家（預設 98%、20 筆評價），預設不看二手。
+  eBay 依連線的國家顯示當地幣別，頁面上沒有原始美金價；不是美金時用每日匯率換算（[Rates By Exchange Rate API](https://www.exchangerate-api.com)），通知和表格的價格是約略值，以商品頁為準。
   連續載入太快會回錯誤頁，所以每次載入至少隔 10 秒、10 分鐘一輪。
   eBay 的整機多半是賣家自己組的，零件估值不準，預設不算撿漏（只列在表格裡）；要算就在 `ebay.stealCats` 加回 `'desktop'`。
 - **Micro Center**：同樣只能用瀏覽器載入搜尋頁，價格與庫存以 `microcenter.storeId` 那家門市為準（預設 165 Indianapolis）。
