@@ -89,7 +89,8 @@ node dealwatch.mjs notify-test
 
 免費方案每月只能推 200 則，所以腳本把同一輪的提醒併成一則，用 `lineDailyMax`（預設一天 6 則）控制用量，
 而且預設只推「撿漏」（見下一節）。上新 / 降價在終端機和 `data/alerts.jsonl` 仍然都有；
-想全部都推就把 `notify.onlySteals` 改成 `false`。
+想連夠便宜的上新 / 降價也推，就把 `notify.onlySteals` 改成 `false`（或設環境變數 `NOTIFY_ONLY_STEALS=false`），
+條件在 `notify.plain`：降幅、最多比撿漏估值貴多少、一天幾則。同一件要比上次推的再便宜才會再推；`notify.plain` 設成 `null` 就全部都推。
 
 ## 其他推播管道
 

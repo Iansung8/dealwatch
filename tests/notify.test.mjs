@@ -1,0 +1,87 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
+import { push, worthPush } from '../src/notify.mjs';
+import { State } from '../src/state.mjs';
+
+const rule = { minDropPct: 10, maxOverPct: 30, newMaxOverPct: 10, dailyMax: 3 };
+const drop = (price, prev, below) => ({ why: 'DROP', prev, item: { key: 'a', price, deal: below == null ? {} : { below } } });
+const added = (price, below) => ({ why: 'NEW', item: { key: 'a', price, deal: below == null ? null : { below } } });
+
+function freshState(keys = ['a', 'b', 'c', 'd']) {
+  const state = new State(fs.mkdtempSync(path.join(os.tmpdir(), 'dealwatch-')));
+  for (const key of keys) state.items[key] = { hist: [1000] };
+  return state;
+}
+
+test('降價要夠多，而且不能比撿漏估值貴太多', () => {
+  assert.equal(worthPush(drop(1849, 2159.97), rule), true);    // 筆電沒有估值，只看降幅
+  assert.equal(worthPush(drop(2400, 2499.99), rule), false);   // 只降 4%
+  assert.equal(worthPush(drop(1179.99, 1699.99, -26), rule), true);
+  assert.equal(worthPush(drop(1099.99, 1369.99, -330), rule), false); // 降很多但還是貴
+});
+
+test('上新只推有估值而且接近估值的', () => {
+  assert.equal(worthPush(added(1799, -9), rule), true);
+  assert.equal(worthPush(added(8449, -105), rule), false);
+  assert.equal(worthPush(added(1296), rule), false); // 筆電估不出價
+});
+
+test('同一件推過之後，要比推過的價格再便宜才會再推', () => {
+  const state = freshState();
+  const item = { key: 'a', price: 1000 };
+  assert.equal(state.needsPush(item), true);
+  state.takePushQuota([{ item }], 0, 15);
+  assert.equal(state.needsPush({ key: 'a', price: 1000 }), false);
+  assert.equal(state.needsPush({ key: 'a', price: 980 }), false);
+  assert.equal(state.needsPush({ key: 'a', price: 970 }), true);
+});
+
+test('撿漏通知過的價格也算推過', () => {
+  const state = freshState();
+  state.markNotified({ key: 'a', price: 1000 });
+  assert.equal(state.needsPush({ key: 'a', price: 1000 }), false);
+  assert.equal(state.needsPush({ key: 'a', price: 950 }), true);
+});
+
+test('一天推滿上限就不再加，超過的之後還能再推', () => {
+  const state = freshState();
+  const alerts = ['a', 'b', 'c', 'd'].map(key => ({ item: { key, price: 1000 } }));
+  // 額度 3，撿漏佔 1，只留 2 則
+  assert.deepEqual(state.takePushQuota(alerts, 1, 3).map(a => a.item.key), ['a', 'b']);
+  assert.deepEqual(state.takePushQuota(alerts.slice(2), 0, 3), []);
+  assert.equal(state.needsPush({ key: 'c', price: 1000 }), true);
+});
+
+test('當天則數存檔後還在，隔天歸零', () => {
+  const state = freshState();
+  state.takePushQuota([{ item: { key: 'a', price: 1000 } }], 0, 3);
+  state.save();
+  const reloaded = new State(state.dir);
+  assert.equal(reloaded.pushDay.n, 1);
+  reloaded.pushDay.day = 'Thu Jan 01 2026';
+  assert.equal(reloaded.takePushQuota([{ item: { key: 'a', price: 900 } }], 0, 3).length, 1);
+  assert.equal(reloaded.pushDay.n, 1);
+});
+
+test('Discord 一則一則送，降價訊息有降幅和估值說明', async () => {
+  const got = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => { got.push({ t: Date.now(), content: JSON.parse(body).content }); res.end(); });
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const item = { key: 'a', store: 'wm', cond: 'New', name: 'RTX 5070 Ti', price: 1179.99, seller: 'Newegg', url: 'http://x', deal: { below: -26, reason: '撿漏價 $936（MSRP $749），售價 $1179.99' } };
+    const ok = await push({ discordWebhook: `http://127.0.0.1:${server.address().port}/hook` }, [{ why: 'DROP', prev: 1699.99, item }, { why: 'DROP', prev: 1699.99, item }]);
+    assert.equal(ok, true);
+    assert.equal(got.length, 2);
+    assert.ok(got[1].t - got[0].t >= 400, '兩則之間要有間隔');
+    assert.match(got[0].content, /降價 \$1699\.99 → \$1179\.99（-31%）/);
+    assert.match(got[0].content, /撿漏價 \$936/);
+  } finally { server.close(); }
+});

@@ -58,14 +58,21 @@ export function alertLine({ why, item, prev }) {
   return why === 'STEAL' ? `${line}\n   ${item.deal.reason}` : line;
 }
 
+// 上新 / 降價夠不夠便宜到要推（撿漏不經過這裡）。below 是售價低於撿漏估值的 %，比估值貴時是負的；筆電等估不出價的沒有 below
+export function worthPush({ why, item, prev }, { minDropPct = 10, maxOverPct = 30, newMaxOverPct = 10 } = {}) {
+  const below = item.deal?.below;
+  if (why === 'DROP') return item.price <= prev * (1 - minDropPct / 100) && (below == null || below >= -maxOverPct);
+  return below != null && below >= -newMaxOverPct;
+}
+
 function alertText({ why, item, prev }) {
   const off = offPct(item) ? ` (-${offPct(item)}%，原價 $${fmt(item.ref)})` : '';
-  const head = why === 'STEAL' ? '💎 撿漏' : why === 'NEW' ? '🆕 上新' : `📉 降價 $${fmt(prev)} → $${fmt(item.price)}`;
+  const head = why === 'STEAL' ? '💎 撿漏' : why === 'NEW' ? '🆕 上新' : `📉 降價 $${fmt(prev)} → $${fmt(item.price)}（-${Math.round((1 - item.price / prev) * 100)}%）`;
   return [
     `${head}｜${storeName(item.store)} ${item.cond}`,
     shortName(item.name).slice(0, 140),
     `$${fmt(item.price)}${off}｜${item.seller}`,
-    ...(why === 'STEAL' ? [item.deal.reason] : []),
+    ...(item.deal?.reason ? [item.deal.reason] : []),
     // 第三方賣家的商品沒有加入購物車連結，只能到商品頁按
     ...(item.cartUrl ? [`加入購物車: ${item.cartUrl}`] : []),
     `商品頁: ${item.url}`,
@@ -154,6 +161,16 @@ export function pushTargets(cfg = {}) {
   };
 }
 
+// Discord webhook 大約 2 秒只收 5 則，同時送會被回 429、訊息就掉了，所以隔開一則一則送
+async function pushDiscord(url, texts, gapMs = 500) {
+  let ok = true;
+  for (const [i, text] of texts.entries()) {
+    if (i) await new Promise(resolve => setTimeout(resolve, gapMs));
+    ok = await post(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content: text.slice(0, 1900) }) }) && ok;
+  }
+  return ok;
+}
+
 // 一次最多推 8 則，避免首次掃描或大量上新時洗版
 export async function push(cfg, alerts, note) {
   const t = pushTargets(cfg);
@@ -165,8 +182,8 @@ export async function push(cfg, alerts, note) {
   if (alerts.length > shown.length) texts.push(`…另有 ${alerts.length - shown.length} 則，見 data/alerts.jsonl`);
   const jobs = [];
   if (t.line) jobs.push(pushLine(t, texts));
+  if (t.discord) jobs.push(pushDiscord(t.discord, texts));
   for (const text of texts) {
-    if (t.discord) jobs.push(post(t.discord, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content: text.slice(0, 1900) }) }));
     if (t.telegramToken && t.telegramChat) jobs.push(post(`https://api.telegram.org/bot${t.telegramToken}/sendMessage`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ chat_id: t.telegramChat, text, disable_web_page_preview: true }) }));
     if (t.ntfy) jobs.push(post(`https://ntfy.sh/${encodeURIComponent(t.ntfy)}`, { method: 'POST', body: text }));
   }

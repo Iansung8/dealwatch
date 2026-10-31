@@ -22,7 +22,7 @@ import { storeTabs } from './browser.mjs';
 import { startUi } from './ui.mjs';
 import { scanStatus } from './scan-status.mjs';
 import { buildMarket, makePricer, foldMarket, judge, msrpOf } from './market.mjs';
-import { c, printTable, alertLine, offPct, push, pushTargets } from './notify.mjs';
+import { c, printTable, alertLine, offPct, push, pushTargets, worthPush } from './notify.mjs';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 // 金鑰放 .env（不進版控），沒有這個檔就略過
@@ -42,6 +42,8 @@ const cdpUrl = process.env.DEALWATCH_CDP_URL || config.walmart.cdpUrl || '';
 const walmartVia = process.env.WALMART_VIA || config.walmart.via;
 // 有設 ZIP_CODE 就蓋過 config.zip；設成空字串代表不限定取貨地點
 if (process.env.ZIP_CODE !== undefined) config.zip = process.env.ZIP_CODE.trim();
+// 有設 NOTIFY_ONLY_STEALS 就蓋過 config.notify.onlySteals；設成 false 代表符合 notify.plain 的上新 / 降價也推
+if (process.env.NOTIFY_ONLY_STEALS !== undefined) config.notify.onlySteals = process.env.NOTIFY_ONLY_STEALS.trim() !== 'false';
 for (const [store, key] of [['bb', 'BESTBUY_INTERVAL_SEC'], ['wm', 'WALMART_INTERVAL_SEC'], ['wt', 'WOOT_INTERVAL_SEC'], ['ne', 'NEWEGG_INTERVAL_SEC'], ['eb', 'EBAY_INTERVAL_SEC'], ['mc', 'MICROCENTER_INTERVAL_SEC'], ['sd', 'SLICKDEALS_INTERVAL_SEC'], ['rd', 'REDDIT_INTERVAL_SEC']]) {
   if (+process.env[key] > 0) config.intervalSec[store] = +process.env[key];
 }
@@ -332,6 +334,14 @@ async function judgeItems(store, items) {
 // 還沒通知過的撿漏
 const pendingSteals = items => items.filter(i => i.deal?.steal && state.needsNotify(i, config.alert.dropPct));
 
+// 這一輪要跟撿漏一起推的上新 / 降價，條件見 config.notify.plain
+function plainToPush(alerts, stealCount) {
+  if (config.notify.onlySteals) return [];
+  const rule = config.notify.plain;
+  if (!rule) return alerts;
+  return state.takePushQuota(alerts.filter(a => worthPush(a, rule) && state.needsPush(a.item, config.alert.dropPct)), stealCount, rule.dailyMax);
+}
+
 // 庫存查詢結果記 30 分鐘。key -> { t, ok }，ok 為 false 表示確定售完
 const stockCache = new Map();
 const STOCK_TTL = 30 * 60e3;
@@ -466,6 +476,7 @@ async function cmdIngest(files) {
   const alerts = state.update('wm', items, catNames, config.alert);
   const steals = (await confirmSteals(items)).map(item => ({ why: 'STEAL', item }));
   for (const s of steals) state.markNotified(s.item);
+  const pushes = [...steals, ...plainToPush(alerts, steals.length)];
   state.save();
   state.writeJson('last.json', items);
   for (const a of [...alerts, ...steals]) state.appendLine('alerts.jsonl', { t: new Date().toISOString(), why: a.why, prev: a.prev, ...a.item });
@@ -475,7 +486,7 @@ async function cmdIngest(files) {
     console.log(c.dim(`\n${files.length} 個檔案，${items.length} 筆符合`));
     for (const a of [...alerts, ...steals]) console.log(alertLine(a));
   }
-  await push(config.notify, config.notify.onlySteals ? steals : [...steals, ...alerts]);
+  await push(config.notify, pushes);
 }
 
 async function cmdQuery(query) {
@@ -548,6 +559,7 @@ async function cmdWatch({ ui = false } = {}) {
     }
     if (!steals.length && !plain.length) return;
     for (const s of steals) state.markNotified(s.item);
+    const pushes = [...steals, ...plainToPush(plain, steals.length)];
     state.save();
     if (!headless) process.stdout.write('\x07');
     if (flags['auto-cart'] && !flags.headless) {
@@ -556,7 +568,7 @@ async function cmdWatch({ ui = false } = {}) {
         if (s.item.cartUrl) await addToCart(s.item, config.cart); else openUrl(s.item.url, config.cart.browser);
       }
     }
-    await push(config.notify, config.notify.onlySteals ? steals : [...steals, ...plain]);
+    await push(config.notify, pushes);
   };
 
   const loop = async store => {
