@@ -150,6 +150,7 @@ MSRP 表裡沒有的型號會退回用市價：Best Buy 全新品目錄的最低
 - **eBay**：直接請求一律被擋，只能用同一個 Chrome 另開分頁載入搜尋頁（最新上架、只看直購、限定 eBay 分類與美國境內出貨）。
   價格含運費；只留 `ebay.minFeedbackPct` / `minFeedbackCount` 以上的賣家（預設 98%、20 筆評價），預設不看二手。
   連續載入太快會回錯誤頁，所以每次載入至少隔 10 秒、10 分鐘一輪。
+  eBay 的整機多半是賣家自己組的，零件估值不準，預設不算撿漏（只列在表格裡）；要算就在 `ebay.stealCats` 加回 `'desktop'`。
 - **Micro Center**：同樣只能用瀏覽器載入搜尋頁，價格與庫存以 `microcenter.storeId` 那家門市為準（預設 165 Indianapolis）。
 - **Slickdeals、r/buildapcsales**：讀網友回報 deal 的 RSS。每篇貼文當成一件商品，價格、規格、店名從標題解析，
   再套同一套撿漏標準；只看 `feeds.maxAgeHours`（預設 48 小時）內的貼文。表格的「賣家」欄是實際賣的那家店，
