@@ -152,6 +152,11 @@ export class Browser {
     return this.serial(async () => { await this.navigate(url, timeout); return this.run('document.documentElement.outerHTML'); });
   }
 
+  // 不重新載入，讀分頁目前的 HTML（頁面自己換過內容時用）
+  currentHtml() {
+    return this.serial(() => this.run('document.documentElement.outerHTML'));
+  }
+
   // 載入一頁後反覆執行一段運算式，直到 until(結果) 成立或逾時，回傳最後一次的結果。
   // 給內容是載入後才由腳本畫出來的頁面用。
   evaluate(url, expression, { until = v => !!v, timeout = 10000 } = {}) {

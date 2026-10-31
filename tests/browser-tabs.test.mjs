@@ -20,10 +20,12 @@ test('第一家用主分頁，其他共用同一個瀏覽器、各開一個分�
 test('Micro Center 等人驗證時，eBay 載入成功不會蓋掉驗證頁，也不會放掉 hold', async t => {
   const tabs = storeTabs(options, ['wm', 'eb', 'mc']);
   const visits = { eb: [], mc: [] };
-  tabs.mc.html = async url => { visits.mc.push(String(url)); return '<html><head><title>Just a moment...</title></head></html>'; };
+  const blocked = '<html><head><title>Just a moment...</title></head></html>';
+  tabs.mc.html = async url => { visits.mc.push(String(url)); return blocked; };
+  tabs.mc.currentHtml = async () => blocked;
   tabs.mc.focus = async () => {};
   tabs.eb.html = async url => { visits.eb.push(String(url)); return ebayHtml; };
-  microcenter.configure({ browser: tabs.mc, gapMs: 0 });
+  microcenter.configure({ browser: tabs.mc, gapMs: 0, recheckMs: [0, 0] });
   ebay.configure({ browser: tabs.eb, gapMs: 0 });
   t.after(() => { microcenter.configure({ browser: null }); ebay.configure({ browser: null }); });
 
