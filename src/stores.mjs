@@ -5,6 +5,9 @@ export const STORES = {
   wm: { name: 'Walmart', short: 'WM', queries: 'walmart' },
   wt: { name: 'Woot', short: 'WT', queries: 'woot' },
   ne: { name: 'Newegg', short: 'NE', queries: 'newegg' },
+  // eBay 只看直購（Buy It Now）；seller 是 eBay 賣家帳號
+  eb: { name: 'eBay', short: 'EB', queries: 'ebay' },
+  mc: { name: 'Micro Center', short: 'MC', queries: 'microcenter' },
   // 社群回報的 deal：商品實際在別家店賣，表格的「賣家」欄是那家店
   sd: { name: 'Slickdeals', short: 'SD', queries: 'slickdeals' },
   rd: { name: 'r/buildapcsales', short: 'RD', queries: 'reddit' },

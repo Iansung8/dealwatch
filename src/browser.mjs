@@ -26,8 +26,9 @@ export function requireBrowserRuntime() {
 export class Browser {
   // cdpUrl：接到別處已經在跑的瀏覽器（例如 NAS 上的 Chromium 容器），這種模式下不會自己啟動或關閉瀏覽器
   // idleMs：載入都做完後過多久把分頁換成空白頁，0 = 不換
-  constructor({ path, profileDir, port = 9333, cdpUrl = '', commandTimeout = 10000, idleMs = 30000 }) {
-    Object.assign(this, { path: path || findBrowser(), profileDir, port, commandTimeout, idleMs, hold: false, nextId: 1, pending: new Map(), waiters: [], spawned: false });
+  // parent：跟另一個 Browser 共用同一個瀏覽器，但自己開一個分頁（各自排隊，互不卡住）；瀏覽器由 parent 負責啟動與關閉
+  constructor({ path, profileDir, port = 9333, cdpUrl = '', commandTimeout = 10000, idleMs = 30000, parent = null }) {
+    Object.assign(this, { path: path || findBrowser(), profileDir, port, commandTimeout, idleMs, parent, hold: false, nextId: 1, pending: new Map(), waiters: [], spawned: false });
     this.remote = !!cdpUrl;
     this.base = (cdpUrl || `http://127.0.0.1:${port}`).replace(/\/$/, '');
   }
@@ -41,6 +42,7 @@ export class Browser {
   ready() {
     return this.starting ??= (async () => {
       requireBrowserRuntime();
+      if (this.parent) await this.parent.ready();
       let info = await this.version().catch(() => null);
       if (!info && this.remote) throw new Error(`連不上瀏覽器 ${this.base}（瀏覽器容器還沒啟動完成，或沒開遠端除錯埠）`);
       if (!info) {
@@ -68,7 +70,8 @@ export class Browser {
       };
 
       const { targetInfos } = await this.send('Target.getTargets');
-      this.targetId = targetInfos.find(t => t.type === 'page')?.targetId ?? (await this.send('Target.createTarget', { url: 'about:blank' })).targetId;
+      const existing = this.parent ? null : targetInfos.find(t => t.type === 'page')?.targetId;
+      this.targetId = existing ?? (await this.send('Target.createTarget', { url: 'about:blank' })).targetId;
       this.session = (await this.send('Target.attachToTarget', { targetId: this.targetId, flatten: true })).sessionId;
       await this.send('Page.enable', {}, this.session);
     })().catch(err => { this.starting = null; throw err; });
@@ -172,7 +175,9 @@ export class Browser {
     if (!this.starting) return;
     await this.starting.catch(() => {});
     // 接到別處的瀏覽器時不關它，但把分頁換回空白頁（hold 時保留）
-    if (this.remote && this.idleMs > 0) await Promise.race([this.blank(), sleep(6000)]);
+    if (this.parent) {
+      if (!this.keepOpen) await Promise.race([this.send('Target.closeTarget', { targetId: this.targetId }).catch(() => {}), sleep(1500)]);
+    } else if (this.remote && this.idleMs > 0) await Promise.race([this.blank(), sleep(6000)]);
     if (this.spawned && !this.keepOpen) await Promise.race([this.send('Browser.close').catch(() => {}), sleep(1500)]);
     this.ws?.close();
   }
