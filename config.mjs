@@ -5,15 +5,16 @@ export default {
   // 你的郵遞區號：Best Buy 的 open-box 多半限門市取貨，填了會以你附近的庫存為準
   zip: '61820',
 
-  // 要監控哪些店：bb Best Buy、wm Walmart、wt Woot、ne Newegg，
+  // 要監控哪些店：bb Best Buy、wm Walmart、wt Woot、ne Newegg、eb eBay、mc Micro Center，
   // 以及社群回報的 deal：sd Slickdeals、rd Reddit r/buildapcsales（商品在別家店，表格的「賣家」欄是那家店）
-  stores: ['bb', 'wm', 'wt', 'ne', 'sd', 'rd'],
+  stores: ['bb', 'wm', 'wt', 'ne', 'eb', 'mc', 'sd', 'rd'],
 
   // watch 模式每家店的輪詢間隔（秒）。太密會被擋，被擋時腳本會自動加倍退避
   // Best Buy 一輪約 3 秒可以跑很密；Walmart 請求一密就會跳人機驗證，建議維持 5 分鐘
   // Woot 是限時特賣，上架時間多半在美中時間午夜，2 分鐘一輪就夠。
   // r/buildapcsales 的好 deal 常常幾分鐘內賣光，但 Reddit 限流很嚴（連打兩次就 429），一輪只發一個請求、2 分鐘一輪
-  intervalSec: { bb: 60, wm: 300, wt: 120, ne: 300, sd: 180, rd: 120 },
+  // eBay / Micro Center 只能用瀏覽器載入，而且 eBay 連續載入太快會回錯誤頁，10 分鐘一輪
+  intervalSec: { bb: 60, wm: 300, wt: 120, ne: 300, eb: 600, mc: 600, sd: 180, rd: 120 },
 
   ui: { port: 8787 }, // `node dealwatch.mjs ui` 的網頁介面埠號
 
@@ -49,6 +50,24 @@ export default {
 
   woot: {
     limit: 120, // 每個關鍵字最多拿幾件（依上架時間由新到舊）
+  },
+
+  ebay: {
+    // 只看這些商品狀況：New、Open-Box、Refurbished、Used（二手詐騙多，預設不看）
+    conditions: ['New', 'Open-Box', 'Refurbished'],
+    minFeedbackPct: 98,   // 賣家好評率至少幾 %
+    minFeedbackCount: 20, // 賣家評價數至少幾筆（新帳號低價多半是詐騙）
+    usOnly: true,         // 只看美國境內出貨
+    // 哪些分類的 eBay 商品可以算撿漏。整機預設不算：多半是賣家自己組的機器，同一個賣家一次幾十台，
+    // 電源、主機板看不出等級，零件估值偏高，會把真正的撿漏洗掉。要看就把 'desktop' 加回來
+    stealCats: ['laptop', 'cpu', 'gpu', 'ram'],
+    gapMs: 10000,         // 兩次載入至少隔多久（毫秒）
+  },
+
+  microcenter: {
+    // 門市代號：價格與庫存以這家店為準。離 61820 最近的是 165 Indianapolis；其他：025 Westmont IL、151 Chicago、095 Brentwood MO
+    storeId: '165',
+    gapMs: 4000,
   },
 
   feeds: {
@@ -115,7 +134,8 @@ export default {
   ],
 
   // 每個分類：queries 是丟給兩家店的搜尋關鍵字，其餘是過濾條件
-  //   queries     每家店各自的關鍵字：bestbuy / walmart / woot / newegg / slickdeals / reddit
+  //   queries     每家店各自的關鍵字：bestbuy / walmart / woot / newegg / ebay / microcenter / slickdeals / reddit
+  //   ebayCategory eBay 的分類代號，搜尋時限定在這個分類（避免配件、空盒混進來）
   //               reddit 一輪只抓一次最新貼文，這裡的字詞（不分大小寫）只要出現在標題就算
   //   type        站台商品類型（沒有類型時比對標題）
   //   include     標題必須符合 / exclude 標題不可符合
@@ -130,9 +150,12 @@ export default {
         walmart: ['gaming laptop rtx', 'rtx 5070 ti laptop'],
         woot: ['laptop'], // Woot 商品不多，而且關鍵字的每個字都要出現在標題裡，用寬一點的詞再靠分類條件過濾
         newegg: ['gaming laptop rtx 5070 ti', 'gaming laptop rtx 5080'],
+        ebay: ['rtx 5070 ti laptop', 'rtx 5080 laptop', 'rtx 5090 laptop'],
+        microcenter: ['rtx 5070 ti laptop', 'rtx 5080 laptop'],
         slickdeals: ['gaming laptop', 'rtx 5070 ti laptop', 'rtx 5080 laptop'],
         reddit: ['laptop'],
       },
+      ebayCategory: 177,
       type: /laptop|notebook/i,
       minGpu: 'RTX 4050',
       minPrice: 350,
@@ -144,9 +167,12 @@ export default {
         walmart: ['gaming desktop pc rtx', '9800x3d gaming pc'],
         woot: ['desktop', 'gaming pc'],
         newegg: ['gaming desktop rtx 5080', '9800x3d gaming pc'],
+        ebay: ['rtx 5080 gaming pc', 'rtx 5090 gaming pc'],
+        microcenter: ['rtx 5080 gaming desktop', 'rtx 5090 gaming desktop'],
         slickdeals: ['gaming pc', 'gaming desktop', '9800x3d'],
         reddit: ['prebuilt', 'desktop', 'gaming pc'],
       },
+      ebayCategory: 179,
       type: /desktop|gaming pc|tower/i,
       exclude: /all-in-one|\bAIO\b|monitor/i,
       minGpu: 'RTX 4060',
@@ -159,9 +185,12 @@ export default {
         walmart: ['ryzen 9800x3d', 'ryzen 9950x3d'],
         woot: ['ryzen', 'processor', 'core ultra'],
         newegg: ['ryzen 7 9800x3d', 'ryzen 9 9950x3d'],
+        ebay: ['9800x3d', '9950x3d'],
+        microcenter: ['ryzen 7 9800x3d', 'ryzen 9 9950x3d'],
         slickdeals: ['9800x3d', '9950x3d'],
         reddit: ['cpu', 'x3d', 'ryzen', 'core ultra'],
       },
+      ebayCategory: 164,
       type: /processor|cpu/i,
       show: ['cpu'],
       // Best Buy 的 CPU / 記憶體幾乎沒有 open-box，所以這兩類連全新品一起看
@@ -178,9 +207,12 @@ export default {
         walmart: ['rtx 5070 ti', 'rtx 5080', 'rtx 5090'],
         woot: ['rtx', 'geforce', 'radeon'],
         newegg: ['rtx 5070 ti', 'rtx 5080', 'rtx 5090'],
+        ebay: ['rtx 5070 ti', 'rtx 5080', 'rtx 5090'],
+        microcenter: ['rtx 5070 ti', 'rtx 5080', 'rtx 5090'],
         slickdeals: ['rtx 5070 ti', 'rtx 5080', 'rtx 5090'],
         reddit: ['gpu', 'rtx', 'radeon', 'rx 9070'],
       },
+      ebayCategory: 27386,
       type: /graphics card|video card|gpu/i,
       show: ['gpu'],
       exclude: /laptop|notebook|gaming pc|desktop pc|water block|backplate|bracket|riser/i,
@@ -194,9 +226,12 @@ export default {
         walmart: ['ddr5 32gb kit', 'ddr5 64gb kit'],
         woot: ['ddr5', 'memory'],
         newegg: ['ddr5 32gb desktop memory', 'ddr5 64gb desktop memory'],
+        ebay: ['ddr5 32gb', 'ddr5 64gb'],
+        microcenter: ['ddr5 32gb kit', 'ddr5 64gb kit'],
         slickdeals: ['ddr5'],
         reddit: ['ram', 'ddr5', 'memory'],
       },
+      ebayCategory: 170083,
       type: /memory|ram/i,
       show: ['ram'],
       bestbuyConditions: ['Open-Box', 'Refurbished', 'New'],

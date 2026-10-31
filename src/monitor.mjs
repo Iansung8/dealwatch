@@ -9,6 +9,8 @@ import * as bestbuy from './bestbuy.mjs';
 import * as walmart from './walmart.mjs';
 import * as woot from './woot.mjs';
 import * as newegg from './newegg.mjs';
+import * as ebay from './ebay.mjs';
+import * as microcenter from './microcenter.mjs';
 import * as slickdeals from './slickdeals.mjs';
 import * as reddit from './reddit.mjs';
 import { STORES as STORE_META } from './stores.mjs';
@@ -40,7 +42,7 @@ const cdpUrl = process.env.DEALWATCH_CDP_URL || config.walmart.cdpUrl || '';
 const walmartVia = process.env.WALMART_VIA || config.walmart.via;
 // 有設 ZIP_CODE 就蓋過 config.zip；設成空字串代表不限定取貨地點
 if (process.env.ZIP_CODE !== undefined) config.zip = process.env.ZIP_CODE.trim();
-for (const [store, key] of [['bb', 'BESTBUY_INTERVAL_SEC'], ['wm', 'WALMART_INTERVAL_SEC'], ['wt', 'WOOT_INTERVAL_SEC'], ['ne', 'NEWEGG_INTERVAL_SEC'], ['sd', 'SLICKDEALS_INTERVAL_SEC'], ['rd', 'REDDIT_INTERVAL_SEC']]) {
+for (const [store, key] of [['bb', 'BESTBUY_INTERVAL_SEC'], ['wm', 'WALMART_INTERVAL_SEC'], ['wt', 'WOOT_INTERVAL_SEC'], ['ne', 'NEWEGG_INTERVAL_SEC'], ['eb', 'EBAY_INTERVAL_SEC'], ['mc', 'MICROCENTER_INTERVAL_SEC'], ['sd', 'SLICKDEALS_INTERVAL_SEC'], ['rd', 'REDDIT_INTERVAL_SEC']]) {
   if (+process.env[key] > 0) config.intervalSec[store] = +process.env[key];
 }
 
@@ -114,6 +116,10 @@ const wmBrowser = new Browser({ path: config.walmart.browserPath, profileDir: pa
 walmart.configure({ via: walmartVia, browser: wmBrowser, startInBrowser: (state.readJson('walmart-mode.json')?.browserUntil ?? 0) > Date.now() });
 // Newegg 被 Cloudflare 擋時也改用同一個瀏覽器；WALMART_VIA=http（沒有瀏覽器的部署）就只走直接請求
 newegg.configure({ browser: walmartVia === 'http' ? null : wmBrowser });
+// eBay / Micro Center 直接請求一律被擋，只能用瀏覽器；在同一個瀏覽器另開一個分頁，不跟 Walmart / Newegg 搶同一個分頁排隊
+const shopBrowser = new Browser({ path: config.walmart.browserPath, profileDir: path.join(ROOT, 'data', 'chrome-profile'), cdpUrl, parent: wmBrowser });
+ebay.configure({ browser: shopBrowser, ...config.ebay });
+microcenter.configure({ browser: shopBrowser, ...config.microcenter });
 function saveWalmartHint() {
   if (walmartVia === 'auto' && walmart.usingBrowser()) state.writeJson('walmart-mode.json', { browserUntil: Date.now() + 6 * 36e5 });
 }
@@ -123,6 +129,17 @@ function keep(item) {
   if (!item.inStock || !(item.price > 0)) return false;
   if (item.store === 'bb' && !config.bestbuy.include3P && item.seller !== 'BestBuy') return false;
   if (item.store === 'wm' && config.walmart.sellers && !config.walmart.sellers.test(item.seller)) return false;
+  if (item.store === 'eb' && !ebayOk(item)) return false;
+  return true;
+}
+
+// eBay 賣家信用與商品狀況。好評率或評價數不明的一律不要
+function ebayOk(item) {
+  const e = config.ebay ?? {};
+  const condition = item.cond === 'Used' ? 'Used' : { ob: 'Open-Box', refurb: 'Refurbished', new: 'New' }[item.kind];
+  if (e.conditions && !e.conditions.includes(condition)) return false;
+  if (e.minFeedbackPct != null && !(item.feedbackPct >= e.minFeedbackPct)) return false;
+  if (e.minFeedbackCount != null && !(item.feedbackCount >= e.minFeedbackCount)) return false;
   return true;
 }
 
@@ -157,6 +174,8 @@ function storeSearch(store, query, cat) {
   if (store === 'wm') return walmartPages(query, cat);
   if (store === 'wt') return woot.search({ ...opts, limit: config.woot?.limit }).then(r => r.items);
   if (store === 'ne') return newegg.search(opts).then(r => r.items);
+  if (store === 'eb') return ebay.search({ ...opts, category: cat.ebayCategory }).then(r => r.items);
+  if (store === 'mc') return microcenter.search(opts).then(r => r.items);
   if (store === 'sd') return slickdeals.search(opts).then(r => r.items);
   if (store === 'rd') return reddit.search(opts).then(r => r.items);
   throw new Error(`沒有 ${store} 的搜尋方式`);
@@ -164,7 +183,7 @@ function storeSearch(store, query, cat) {
 
 // 指定商品的單品查詢
 function storeProduct(store, id) {
-  const fn = { bb: bestbuy.product, wm: walmart.product, wt: woot.product, ne: newegg.product }[store];
+  const fn = { bb: bestbuy.product, wm: walmart.product, wt: woot.product, ne: newegg.product, eb: ebay.product, mc: microcenter.product }[store];
   if (!fn) throw new Error(`${STORES[store]} 不支援指定商品`);
   return fn(id);
 }
@@ -238,7 +257,7 @@ function forceClassify(item) {
   return name ? { ...item, cat: name, specs: parseSpecs(item.name), off: offPct(item) } : null;
 }
 
-// config.watchlist 的每一項可以是網址，或 { store: 'bb'|'wm'|'wt'|'ne', id, maxPrice }
+// config.watchlist 的每一項可以是網址，或 { store: 'bb'|'wm'|'wt'|'ne'|'eb'|'mc', id, maxPrice }
 function parseWatch(entry) {
   const w = typeof entry === 'string' ? { url: entry } : { ...entry };
   if (w.store && w.id) return { ...w, id: String(w.id) };
@@ -251,6 +270,10 @@ function parseWatch(entry) {
   if (bb) return { ...w, store: 'bb', id: bb[1] };
   if (wt) return { ...w, store: 'wt', id: wt[1].toLowerCase() };
   if (ne) return { ...w, store: 'ne', id: ne[1].toUpperCase() };
+  const eb = /ebay\.com\/itm\/(?:[^/?#]+\/)?(\d{9,})/i.exec(url);
+  const mc = /microcenter\.com\/product\/(\d+)/i.exec(url);
+  if (eb) return { ...w, store: 'eb', id: eb[1] };
+  if (mc) return { ...w, store: 'mc', id: mc[1] };
   console.error(c.red(`指定商品看不出是哪家店的哪個商品，已略過: ${url}（Best Buy 請用含 /sku/數字 的網址，或寫成 { store: 'bb', id: 'SKU' }）`));
   return null;
 }
@@ -291,6 +314,11 @@ async function judgeItems(store, items) {
   const priceOf = makePricer(market, all, config.steals.override);
   for (const item of items) {
     item.deal = judge(item, priceOf, config.steals, ownMarketPrice(store, item));
+    // eBay 的整機多半是賣家自己組的，電源、主機板看不出等級，零件估值不準；只在 ebay.stealCats 的分類算撿漏
+    const ebayCats = config.ebay?.stealCats;
+    if (item.store === 'eb' && item.deal?.steal && ebayCats && !ebayCats.includes(item.cat)) {
+      item.deal = { ...item.deal, steal: false, reason: `eBay ${item.cat} 不算撿漏（ebay.stealCats）｜${item.deal.reason}` };
+    }
     // 指定商品有設到價通知的話，到價就算撿漏
     const target = item.watch?.maxPrice;
     if (target && item.price <= target) item.deal = { ...item.deal, steal: true, reason: `指定商品到價：售價 ${item.price}，你設定 ${target} 以下通知` };
@@ -456,6 +484,8 @@ async function cmdQuery(query) {
   if (stores.includes('wm')) jobs.push(walmart.search({ query, sort: '' }));
   if (stores.includes('wt')) jobs.push(woot.search({ query }));
   if (stores.includes('ne')) jobs.push(newegg.search({ query }));
+  if (stores.includes('eb')) jobs.push(ebay.search({ query }));
+  if (stores.includes('mc')) jobs.push(microcenter.search({ query }));
   if (stores.includes('sd')) jobs.push(slickdeals.search({ query }));
   if (stores.includes('rd')) jobs.push(reddit.search({ query }));
   const t0 = Date.now();
@@ -538,7 +568,7 @@ async function cmdWatch({ ui = false } = {}) {
       status[store] = { ...status[store], scanning: true, paused: false };
       const r = await scanStore(store);
       watchStatus[store] = r.watch;
-      const summaryOf = { t: Date.now(), ms: r.ms, requests: r.requests, raw: r.raw, scanning: false, viaBrowser: (store === 'wm' && walmart.usingBrowser()) || (store === 'ne' && newegg.usingBrowser()) };
+      const summaryOf = { t: Date.now(), ms: r.ms, requests: r.requests, raw: r.raw, scanning: false, viaBrowser: (store === 'wm' && walmart.usingBrowser()) || (store === 'ne' && newegg.usingBrowser()) || store === 'eb' || store === 'mc' };
       if (failed(r)) {
         if (backoff === 1) await push(config.notify, [], `⚠️ ${STORES[store]} 查詢失敗（${r.errors[0]}），已自動拉長間隔重試`);
         backoff = Math.min(backoff * 2, 16);
@@ -608,6 +638,7 @@ async function cmdWatch({ ui = false } = {}) {
 
 // 結束前把自己開的瀏覽器關掉
 async function quit(code) {
+  await shopBrowser.dispose();
   await wmBrowser.dispose();
   process.exit(code);
 }
