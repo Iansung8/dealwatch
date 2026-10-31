@@ -155,6 +155,8 @@ MSRP 表裡沒有的型號會退回用市價：Best Buy 全新品目錄的最低
 - **Slickdeals、r/buildapcsales**：讀網友回報 deal 的 RSS。每篇貼文當成一件商品，價格、規格、店名從標題解析，
   再套同一套撿漏標準；只看 `feeds.maxAgeHours`（預設 48 小時）內的貼文。表格的「賣家」欄是實際賣的那家店，
   「開商品頁」會開商品網址（Slickdeals 是討論串）。Reddit 不登入時限流很嚴，一輪只發一個請求。
+  Slickdeals 的搜尋 RSS 被 Cloudflare 擋（例如從 NAS 連線）時，改讀它發布在 FeedBurner 的官方 feed
+  （首頁精選、Hot Deals 討論區各最新 25 則），自己比對標題，6 小時後才再試一次搜尋。
 - **購物車**：Best Buy 用 `api.bestbuy.com/click/-/<sku>/cart`（open-box 加 `seller_id=BBY_OB&listing_id=<成色>`），
   加完再開結帳頁。Walmart 用 `affil.walmart.com/cart/buynow?offers=<offerId>`，鎖定你在表格看到的那個賣家，
   加完直接往結帳走（沒登入時會停在購物車頁）。
