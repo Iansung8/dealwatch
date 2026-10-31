@@ -58,6 +58,9 @@ export default {
     minFeedbackPct: 98,   // 賣家好評率至少幾 %
     minFeedbackCount: 20, // 賣家評價數至少幾筆（新帳號低價多半是詐騙）
     usOnly: true,         // 只看美國境內出貨
+    // 哪些分類的 eBay 商品可以算撿漏。整機預設不算：多半是賣家自己組的機器，同一個賣家一次幾十台，
+    // 電源、主機板看不出等級，零件估值偏高，會把真正的撿漏洗掉。要看就把 'desktop' 加回來
+    stealCats: ['laptop', 'cpu', 'gpu', 'ram'],
     gapMs: 10000,         // 兩次載入至少隔多久（毫秒）
   },
 

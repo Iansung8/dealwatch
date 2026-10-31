@@ -314,6 +314,11 @@ async function judgeItems(store, items) {
   const priceOf = makePricer(market, all, config.steals.override);
   for (const item of items) {
     item.deal = judge(item, priceOf, config.steals, ownMarketPrice(store, item));
+    // eBay 的整機多半是賣家自己組的，電源、主機板看不出等級，零件估值不準；只在 ebay.stealCats 的分類算撿漏
+    const ebayCats = config.ebay?.stealCats;
+    if (item.store === 'eb' && item.deal?.steal && ebayCats && !ebayCats.includes(item.cat)) {
+      item.deal = { ...item.deal, steal: false, reason: `eBay ${item.cat} 不算撿漏（ebay.stealCats）｜${item.deal.reason}` };
+    }
     // 指定商品有設到價通知的話，到價就算撿漏
     const target = item.watch?.maxPrice;
     if (target && item.price <= target) item.deal = { ...item.deal, steal: true, reason: `指定商品到價：售價 ${item.price}，你設定 ${target} 以下通知` };
