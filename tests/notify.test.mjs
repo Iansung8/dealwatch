@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { push, worthPush } from '../src/notify.mjs';
+import { alertText, push, worthPush } from '../src/notify.mjs';
 import { State } from '../src/state.mjs';
 
 const rule = { minDropPct: 10, maxOverPct: 30, newMaxOverPct: 10, dailyMax: 3 };
@@ -76,12 +76,14 @@ test('Discord 一則一則送，降價訊息有降幅和估值說明', async () 
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   try {
-    const item = { key: 'a', store: 'wm', cond: 'New', name: 'RTX 5070 Ti', price: 1179.99, seller: 'Newegg', url: 'http://x', deal: { below: -26, reason: '撿漏價 $936（MSRP $749），售價 $1179.99' } };
+    const item = { key: 'a', store: 'wm', cond: 'New', name: 'RTX 5070 Ti *OC*', price: 1179.99, seller: 'Newegg', url: 'http://x', deal: { below: -26, reason: '撿漏價 $936（MSRP $749），售價 $1179.99' } };
     const ok = await push({ discordWebhook: `http://127.0.0.1:${server.address().port}/hook` }, [{ why: 'DROP', prev: 1699.99, item }, { why: 'DROP', prev: 1699.99, item }]);
     assert.equal(ok, true);
     assert.equal(got.length, 2);
     assert.ok(got[1].t - got[0].t >= 400, '兩則之間要有間隔');
     assert.match(got[0].content, /降價 \$1699\.99 → \$1179\.99（-31%）/);
     assert.match(got[0].content, /撿漏價 \$936/);
+    assert.ok(got[0].content.includes('\n**RTX 5070 Ti \\*OC\\***\n'), 'Discord 的商品名是粗體，名稱裡的星號要跳脫');
+    assert.ok(alertText({ why: 'DROP', prev: 1699.99, item }).includes('\nRTX 5070 Ti *OC*\n'), '其他管道不加星號');
   } finally { server.close(); }
 });

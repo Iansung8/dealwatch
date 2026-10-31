@@ -65,12 +65,15 @@ export function worthPush({ why, item, prev }, { minDropPct = 10, maxOverPct = 3
   return below != null && below >= -newMaxOverPct;
 }
 
-function alertText({ why, item, prev }) {
+// 只有 Discord 會顯示 Markdown，其他管道會看到星號，所以只給它用。名稱裡的符號要跳脫，粗體才不會斷掉
+const markdownBold = s => `**${s.replace(/[\\*_~`]/g, '\\$&')}**`;
+
+export function alertText({ why, item, prev }, formatName = s => s) {
   const off = offPct(item) ? ` (-${offPct(item)}%，原價 $${fmt(item.ref)})` : '';
   const head = why === 'STEAL' ? '💎 撿漏' : why === 'NEW' ? '🆕 上新' : `📉 降價 $${fmt(prev)} → $${fmt(item.price)}（-${Math.round((1 - item.price / prev) * 100)}%）`;
   return [
     `${head}｜${storeName(item.store)} ${item.cond}`,
-    shortName(item.name).slice(0, 140),
+    formatName(shortName(item.name).slice(0, 140)),
     `$${fmt(item.price)}${off}｜${item.seller}`,
     ...(item.deal?.reason ? [item.deal.reason] : []),
     // 第三方賣家的商品沒有加入購物車連結，只能到商品頁按
@@ -177,12 +180,11 @@ export async function push(cfg, alerts, note) {
   if (!t.line && !t.discord && !t.telegramToken && !t.ntfy) return;
   if (!alerts.length && !note) return;
   const shown = alerts.slice(0, 8);
-  const texts = shown.map(alertText);
-  if (note) texts.push(note);
-  if (alerts.length > shown.length) texts.push(`…另有 ${alerts.length - shown.length} 則，見 data/alerts.jsonl`);
+  const extra = [...(note ? [note] : []), ...(alerts.length > shown.length ? [`…另有 ${alerts.length - shown.length} 則，見 data/alerts.jsonl`] : [])];
+  const texts = [...shown.map(a => alertText(a)), ...extra];
   const jobs = [];
   if (t.line) jobs.push(pushLine(t, texts));
-  if (t.discord) jobs.push(pushDiscord(t.discord, texts));
+  if (t.discord) jobs.push(pushDiscord(t.discord, [...shown.map(a => alertText(a, markdownBold)), ...extra]));
   for (const text of texts) {
     if (t.telegramToken && t.telegramChat) jobs.push(post(`https://api.telegram.org/bot${t.telegramToken}/sendMessage`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ chat_id: t.telegramChat, text, disable_web_page_preview: true }) }));
     if (t.ntfy) jobs.push(post(`https://ntfy.sh/${encodeURIComponent(t.ntfy)}`, { method: 'POST', body: text }));
