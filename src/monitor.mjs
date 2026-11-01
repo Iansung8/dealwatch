@@ -22,7 +22,7 @@ import { storeTabs } from './browser.mjs';
 import { startUi } from './ui.mjs';
 import { scanStatus } from './scan-status.mjs';
 import { buildMarket, makePricer, foldMarket, judge, msrpOf } from './market.mjs';
-import { c, printTable, alertLine, offPct, push, pushTargets, worthPush } from './notify.mjs';
+import { c, printTable, alertLine, failWatch, offPct, push, pushTargets, worthPush } from './notify.mjs';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 // 金鑰放 .env（不進版控），沒有這個檔就略過
@@ -573,6 +573,7 @@ async function cmdWatch({ ui = false } = {}) {
 
   const loop = async store => {
     let backoff = 1;
+    const watchFail = failWatch(config.notify.failWarn);
     for (;;) {
       while (paused.has(store)) {
         status[store] = { ...status[store], scanning: false, paused: true, next: null };
@@ -582,8 +583,9 @@ async function cmdWatch({ ui = false } = {}) {
       const r = await scanStore(store);
       watchStatus[store] = r.watch;
       const summaryOf = { t: Date.now(), ms: r.ms, requests: r.requests, raw: r.raw, scanning: false, viaBrowser: (store === 'wm' && walmart.usingBrowser()) || (store === 'ne' && newegg.usingBrowser()) || store === 'eb' || store === 'mc' };
+      const failWarning = watchFail(failed(r));
       if (failed(r)) {
-        if (backoff === 1) await push(config.notify, [], `⚠️ ${STORES[store]} 查詢失敗（${r.errors[0]}），已自動拉長間隔重試`);
+        if (failWarning) await push(config.notify, [], `⚠️ ${STORES[store]} ${failWarning}（${r.errors[0]}），已自動拉長間隔重試`);
         backoff = Math.min(backoff * 2, 16);
         console.log(`${c.dim(time())} ${c.red(`${STORES[store]} 查詢失敗: ${r.errors.join('; ')}`)} → 間隔 x${backoff}`);
         status[store] = scanStatus(status[store], summaryOf, { failed: true, errors: r.errors, count: r.items.length });

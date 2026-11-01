@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { alertText, push, worthPush } from '../src/notify.mjs';
+import { alertText, failWatch, push, worthPush } from '../src/notify.mjs';
 import { State } from '../src/state.mjs';
 
 const rule = { minDropPct: 10, maxOverPct: 30, newMaxOverPct: 10, dailyMax: 3 };
@@ -16,6 +16,35 @@ function freshState(keys = ['a', 'b', 'c', 'd']) {
   for (const key of keys) state.items[key] = { hist: [1000] };
   return state;
 }
+
+test('查詢失敗：偶爾一次不提醒，連續超過上限才提醒，同一段只提醒一次', () => {
+  const watch = failWatch({ window: 100, maxFails: 20, maxStreak: 2 });
+  assert.equal(watch(true), null);
+  assert.equal(watch(false), null);
+  assert.equal(watch(true), null);
+  assert.equal(watch(true), null);
+  assert.equal(watch(true), '連續失敗 3 次');
+  assert.equal(watch(true), null);
+  assert.equal(watch(false), null); // 恢復後重新計算
+  assert.equal(watch(true), null);
+  assert.equal(watch(true), null);
+  assert.equal(watch(true), '連續失敗 3 次');
+});
+
+test('查詢失敗：最近幾輪失敗超過上限才提醒，舊的失敗滑出視窗後才會再提醒', () => {
+  const watch = failWatch({ window: 10, maxFails: 2, maxStreak: 99 });
+  const round = failed => watch(failed);
+  assert.equal(round(true), null);
+  assert.equal(round(false), null);
+  assert.equal(round(true), null);
+  assert.equal(round(false), null);
+  assert.equal(round(true), '最近 5 輪失敗 3 次');
+  assert.equal(round(true), null); // 還在同一段問題裡
+  for (let i = 0; i < 10; i++) assert.equal(round(false), null); // 全部滑出視窗
+  assert.equal(round(true), null);
+  assert.equal(round(true), null);
+  assert.equal(round(true), '最近 10 輪失敗 3 次');
+});
 
 test('降價要夠多，而且不能比撿漏估值貴太多', () => {
   assert.equal(worthPush(drop(1849, 2159.97), rule), true);    // 筆電沒有估值，只看降幅

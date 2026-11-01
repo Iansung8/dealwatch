@@ -92,6 +92,9 @@ export default {
       newMaxOverPct: 10, // 上新只推有估值、而且最多比估值貴這麼多 % 的；筆電估不出價，上新不推
       dailyMax: 15,      // 一天最多幾則，撿漏算在內，但撿漏本身不會被擋
     },
+    // 查詢失敗的 ⚠️：連續失敗超過 maxStreak 次，或最近 window 輪失敗超過 maxFails 次才發，同一段問題只發一次，恢復正常才會再發。
+    // 只影響推播：日誌、網頁狀態和自動拉長間隔都照舊；計數放記憶體，重啟歸零。maxStreak 設成 0 就是每段失敗都發
+    failWarn: { window: 100, maxFails: 20, maxStreak: 2 },
     discordWebhook: '',
     telegramToken: '',
     telegramChatId: '',

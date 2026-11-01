@@ -65,6 +65,23 @@ export function worthPush({ why, item, prev }, { minDropPct = 10, maxOverPct = 3
   return below != null && below >= -newMaxOverPct;
 }
 
+// 查詢失敗常常下一輪就自己恢復，所以只在連續失敗或最近失敗太多時回傳提醒文字，同一段問題只回一次，恢復正常才會再回。
+// 每輪呼叫一次，參數是這輪有沒有失敗；不用提醒時回傳 null
+export function failWatch({ window = 100, maxFails = 20, maxStreak = 2 } = {}) {
+  const recent = [];
+  let streak = 0, warned = false;
+  return failed => {
+    recent.push(failed);
+    if (recent.length > window) recent.shift();
+    streak = failed ? streak + 1 : 0;
+    const fails = recent.filter(Boolean).length;
+    if (streak <= maxStreak && fails <= maxFails) { warned = false; return null; }
+    if (warned) return null;
+    warned = true;
+    return streak > maxStreak ? `連續失敗 ${streak} 次` : `最近 ${recent.length} 輪失敗 ${fails} 次`;
+  };
+}
+
 // 只有 Discord 會顯示 Markdown，其他管道會看到星號，所以只給它用。名稱裡的符號要跳脫，粗體才不會斷掉
 const markdownBold = s => `**${s.replace(/[\\*_~`]/g, '\\$&')}**`;
 
