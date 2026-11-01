@@ -46,6 +46,17 @@ test('查詢失敗：最近幾輪失敗超過上限才提醒，舊的失敗滑�
   assert.equal(round(true), '最近 10 輪失敗 3 次');
 });
 
+test('紀錄檔超過上限時只留較新的一半，留下的行要完整而且連續', () => {
+  const state = freshState([]);
+  for (let i = 0; i < 100; i++) state.appendLine('log.jsonl', { i }, 500);
+  const file = path.join(state.dir, 'log.jsonl');
+  const kept = fs.readFileSync(file, 'utf8').trim().split('\n').map(line => JSON.parse(line).i);
+  assert.equal(kept.at(-1), 99);
+  assert.ok(kept.length < 100);
+  assert.ok(fs.statSync(file).size <= 500);
+  kept.forEach((n, k) => { if (k) assert.equal(n, kept[k - 1] + 1); });
+});
+
 test('降價要夠多，而且不能比撿漏估值貴太多', () => {
   assert.equal(worthPush(drop(1849, 2159.97), rule), true);    // 筆電沒有估值，只看降幅
   assert.equal(worthPush(drop(2400, 2499.99), rule), false);   // 只降 4%

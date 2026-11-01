@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const HIST_MAX = 6;
+const LINES_MAX_BYTES = 50 * 1024 * 1024;
 
 export class State {
   constructor(dir) {
@@ -74,5 +75,15 @@ export class State {
 
   writeJson(name, data) { fs.writeFileSync(path.join(this.dir, name), JSON.stringify(data, null, 1)); }
   readJson(name) { try { return JSON.parse(fs.readFileSync(path.join(this.dir, name), 'utf8')); } catch { return null; } }
-  appendLine(name, obj) { fs.appendFileSync(path.join(this.dir, name), JSON.stringify(obj) + '\n'); }
+
+  // 只附加的紀錄檔（alerts.jsonl）超過上限就只留較新的一半，免得一直長下去
+  appendLine(name, obj, maxBytes = LINES_MAX_BYTES) {
+    const file = path.join(this.dir, name);
+    fs.appendFileSync(file, JSON.stringify(obj) + '\n');
+    if (fs.statSync(file).size <= maxBytes) return;
+    const text = fs.readFileSync(file, 'utf8');
+    const tmp = file + '.tmp';
+    fs.writeFileSync(tmp, text.slice(text.indexOf('\n', text.length / 2) + 1));
+    fs.renameSync(tmp, file);
+  }
 }
